@@ -1,0 +1,22 @@
+[
+  {
+    "path": "screenshots/1-cover-chase.jpg",
+    "caption": "4-Star Sunset Supercars & Police Chopper Pursuit on Ocean Drive — Three.js WebGL 2.0 clearcoat PBR supercar drifting with twin nitro flames past glowing Art-Deco hotels, curved 3D palm trees, flashing police cruisers, and an airborne 3D police helicopter searchlight.",
+    "tag": "cover"
+  },
+  {
+    "path": "screenshots/2-onfoot-hijack.jpg",
+    "caption": "On-Foot 3D Carjacking & Street Gunfight in Neon Strip — Articulated 3D protagonist firing a Spectre SMG with 3D muzzle flash and tracers beside a convertible Comet GT Cabrio with projected 3D [F] CARJACK HUD prompt and neon casino towers.",
+    "tag": "action"
+  },
+  {
+    "path": "screenshots/3-story-heist.jpg",
+    "caption": "5-Star Story Heist: Federal Reserve Convoy Ambush — Engaging an armored Syndicate Goliath escort convoy with a Rocket Launcher in Downtown Vice Plaza amidst 3D explosion fireballs, SWAT roadblocks, and glowing 3D GPS route chevrons.",
+    "tag": "mission"
+  },
+  {
+    "path": "screenshots/4-safehouse-save.jpg",
+    "caption": "Starfish Marina Safehouse & Persistent Career Dossier — Translucent dark-glass career management modal over the live 3D sunset marina showcasing parked clearcoat supercars, luxury yachts, unclipped 6-mission progression, and localStorage persistence.",
+    "tag": "career"
+  }
+]

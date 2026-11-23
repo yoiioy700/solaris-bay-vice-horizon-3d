@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Solaris Bay: Vice Horizon 3D — Three.js WebGL 2.0 Open-World Sandbox</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.min.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="viewport-shell">
+    <canvas id="webgl-canvas" width="1280" height="720"></canvas>
+    <canvas id="hud-canvas" width="1280" height="720"></canvas>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
