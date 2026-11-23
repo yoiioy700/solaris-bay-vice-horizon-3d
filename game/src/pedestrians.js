@@ -8,6 +8,7 @@ import { COAST_X } from './config.js';
 import { CLUB_ECLIPSE_BOUNDS, isInsideClubEclipse } from './nightlife-romance.js';
 import { getActiveWalkInShopAt } from './shops-economy.js';
 import { addCrimeHeat } from './police-wanted.js';
+import { damagePlayer, ensureCareerStats } from './player-vitals.js';
 
 let nextNpcId = 1;
 
@@ -45,6 +46,8 @@ export function createPedestrian(x, y, role = 'civilian', overrides = {}) {
   const isBeachgoer = role === 'beachgoer';
   const isDancer = role === 'dancer';
   const isCompanion = role === 'companion' || role === 'vip_companion';
+  const isBrave =
+    !isHostile && !isVendor && !isSeated && !isDancer && !isCompanion && idNum % 3 === 0;
 
   let accessory = null;
   let hat = null;
@@ -91,6 +94,10 @@ export function createPedestrian(x, y, role = 'civilian', overrides = {}) {
     isBeachgoer,
     isDancer,
     isCompanion,
+    brave: isBrave,
+    fightBackTimer: 0,
+    meleeCooldown: 0,
+    punchTimer: 0,
     inCar: false,
     hp: role === 'syndicate' ? 110 : role === 'police' ? 95 : 55,
     maxHp: role === 'syndicate' ? 110 : role === 'police' ? 95 : 55,
@@ -388,7 +395,7 @@ export function spawnInitialPedestrians(cityMap) {
 export function alertNearbyCivilians(state, cx, cy, radius = 290) {
   if (!state || !state.pedestrians) return;
   for (const npc of state.pedestrians) {
-    if (npc.dead || npc.hostile) continue;
+    if (npc.dead || npc.hostile || (npc.fightBackTimer || 0) > 0) continue;
     const d = Math.hypot(npc.x - cx, npc.y - cy);
     if (d < radius) {
       if (npc.isVendor) {
@@ -566,6 +573,8 @@ export function updatePedestrians(state, dt) {
 
     npc.muzzleTimer = Math.max(0, npc.muzzleTimer - dt);
     npc.fireCooldown = Math.max(0, npc.fireCooldown - dt);
+    npc.meleeCooldown = Math.max(0, (npc.meleeCooldown || 0) - dt);
+    npc.punchTimer = Math.max(0, (npc.punchTimer || 0) - dt);
     npc.idlePhase = (npc.idlePhase || 0) + dt * 2.2;
 
     if ((npc.shoveTimer || 0) > 0) {
@@ -624,9 +633,24 @@ export function updatePedestrians(state, dt) {
       continue;
     }
 
-    if (npc.hostile) {
+    const policeActive = npc.role === 'police' ? Boolean(state.wanted && state.wanted.stars > 0) : npc.hostile;
+    if (policeActive) {
       npc.angle = Math.atan2(dy, dx);
-      if (dist > 145 && dist < 560) {
+      const playerMoveSpd = player.vehicle
+        ? Math.abs(player.vehicle.speed || 0)
+        : Math.hypot(player.vx || 0, player.vy || 0);
+      const policeArrestApproach =
+        npc.role === 'police' && (!player.vehicle || playerMoveSpd < 35);
+
+      if (policeArrestApproach) {
+        if (dist > 22 && dist < 560) {
+          npc.vx = Math.cos(npc.angle) * npc.speed;
+          npc.vy = Math.sin(npc.angle) * npc.speed;
+        } else {
+          npc.vx *= 0.65;
+          npc.vy *= 0.65;
+        }
+      } else if (dist > 145 && dist < 560) {
         npc.vx = Math.cos(npc.angle) * npc.speed;
         npc.vy = Math.sin(npc.angle) * npc.speed;
       } else if (dist < 110) {
@@ -639,9 +663,11 @@ export function updatePedestrians(state, dt) {
 
       const playerSheltered =
         Boolean(state.nightlife && state.nightlife.session) ||
+        Boolean(state.outcome) ||
         isInsideClubEclipse(player.x, player.y) ||
         Boolean(getActiveWalkInShopAt(player.x, player.y, cityMap.shops));
-      if (!playerSheltered && dist < 430 && npc.fireCooldown <= 0) {
+      const holdingAtGunpoint = npc.role === 'police' && dist <= 40 && (state.wanted?.stars || 0) < 4;
+      if (!playerSheltered && !holdingAtGunpoint && dist < 430 && npc.fireCooldown <= 0) {
         npc.fireCooldown = npc.role === 'syndicate' ? 0.65 : 0.82;
         npc.muzzleTimer = 0.09;
         const aimAngle = npc.angle + (Math.random() - 0.5) * 0.08;
@@ -657,6 +683,30 @@ export function updatePedestrians(state, dt) {
           fromPlayer: false,
           explosiveRadius: 0
         });
+      }
+    } else if ((npc.fightBackTimer || 0) > 0) {
+      npc.fightBackTimer = Math.max(0, npc.fightBackTimer - dt);
+      npc.panicTimer = 0;
+      npc.angle = Math.atan2(dy, dx);
+      if (!player.vehicle && !state.outcome && dist < 340) {
+        if (dist > 22) {
+          npc.vx = Math.cos(npc.angle) * 92;
+          npc.vy = Math.sin(npc.angle) * 92;
+        } else {
+          npc.vx *= 0.65;
+          npc.vy *= 0.65;
+        }
+        if (dist <= 28 && npc.meleeCooldown <= 0) {
+          npc.meleeCooldown = 0.95;
+          npc.punchTimer = 0.28;
+          damagePlayer(state, 9, 'melee');
+          if (state.audio && state.audio.playMeleeHit) {
+            state.audio.playMeleeHit(false, player.x, player.y);
+          }
+        }
+      } else {
+        npc.vx *= 0.82;
+        npc.vy *= 0.82;
       }
     } else if (npc.panicTimer > 0) {
       // Panicked fleeing civilian (including startled café patrons)
@@ -729,20 +779,20 @@ export function updatePedestrians(state, dt) {
       8,
       colliders
     );
-    if (hitWall && !npc.hostile) {
+    if (hitWall && !policeActive && (npc.fightBackTimer || 0) <= 0) {
       npc.walkDir = -npc.walkDir;
       npc.angle += Math.PI;
     }
 
     // Keep civilians clear of world props and stopped vehicles so they never clip through them
-    if (resolveCircleProps(npc, 7.5, npc.z || 0, cityMap.propColliders) && !npc.hostile) {
+    if (resolveCircleProps(npc, 7.5, npc.z || 0, cityMap.propColliders) && !policeActive && (npc.fightBackTimer || 0) <= 0) {
       npc.walkDir = -npc.walkDir;
       npc.angle += Math.PI;
     }
     if (vehicles && dist < 480) {
       for (const v of vehicles) {
         if (v.destroyed || v.speed >= 25) continue;
-        if (resolveCircleOBBCollision(npc, 7.5, v, false) && !npc.hostile) {
+        if (resolveCircleOBBCollision(npc, 7.5, v, false) && !policeActive && (npc.fightBackTimer || 0) <= 0) {
           npc.walkDir = -npc.walkDir;
         }
       }
@@ -825,7 +875,11 @@ export function damagePedestrian(state, npc, amount, impulseX = 0, impulseY = 0,
   alertNearbyCivilians(state, npc.x, npc.y, 280);
 
   if (npc.hp <= 0) {
+    const stats = ensureCareerStats(state);
+    if (npc.hostile) stats.enemiesNeutralized = (stats.enemiesNeutralized || 0) + 1;
+    if (opts.isMelee) stats.meleeKnockouts = (stats.meleeKnockouts || 0) + 1;
     npc.dead = true;
+    npc.fightBackTimer = 0;
     npc.downTimer = Math.max(npc.downTimer || 0, 10.0);
     if (!opts.isCarHit) {
       npc.knockbackTimer = 0.8;

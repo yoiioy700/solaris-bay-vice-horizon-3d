@@ -12,6 +12,42 @@ export const ISLAND_Y2 = 2160;
 export const CAUSEWAY_YS = [896, 1856];
 
 export const STORAGE_KEY = 'solaris_bay_vice_horizon_3d_save_v1';
+export const SAVE_SLOT_KEYS = [
+  STORAGE_KEY,
+  `${STORAGE_KEY}_slot2`,
+  `${STORAGE_KEY}_slot3`
+];
+export const SETTINGS_STORAGE_KEY = 'solaris_bay_vice_horizon_3d_settings_v1';
+
+export function getWorldClockInfo(worldTime = 17.2) {
+  const h = ((Number.isFinite(worldTime) ? worldTime : 17.2) % 24 + 24) % 24;
+  const hh = Math.floor(h);
+  const mm = Math.floor((h - hh) * 60);
+  const formatted = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  let phase = 'MIDNIGHT NEON';
+  if (h >= 5.0 && h < 7.5) phase = 'DAWN';
+  else if (h >= 7.5 && h < 16.5) phase = 'DAYLIGHT';
+  else if (h >= 16.5 && h < 18.75) phase = 'GOLDEN HOUR';
+  else if (h >= 18.75 && h < 20.5) phase = 'DUSK';
+
+  // 0 during golden hour (<= 17.2) & daylight; ramps smoothly 18.0 -> 20.2 -> 1.0, down 4.8 -> 6.8 -> 0.0
+  let nightFactor = 0;
+  if (h >= 20.2 || h < 4.8) {
+    nightFactor = 1;
+  } else if (h >= 18.0 && h < 20.2) {
+    nightFactor = (h - 18.0) / 2.2;
+  } else if (h >= 4.8 && h < 6.8) {
+    nightFactor = 1 - (h - 4.8) / 2.0;
+  }
+
+  return {
+    hour: h,
+    formatted,
+    phase,
+    nightFactor,
+    isNight: h >= 19 || h < 6
+  };
+}
 
 export const DISTRICTS = [
   {
@@ -493,5 +529,23 @@ export const LANDMARKS = {
     radius: 82,
     cost: 250,
     color: '#d97c5b'
+  },
+  hospital: {
+    id: 'hospital',
+    name: 'SOLARIS GENERAL HOSPITAL',
+    x: 2496,
+    y: 1536,
+    spawnAngle: -Math.PI * 0.5,
+    radius: 65,
+    color: '#63c792'
+  },
+  precinct: {
+    id: 'precinct',
+    name: 'VCPD CENTRAL PRECINCT',
+    x: 1536,
+    y: 896,
+    spawnAngle: Math.PI * 0.5,
+    radius: 65,
+    color: '#64bcc9'
   }
 };

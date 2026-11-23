@@ -1,10 +1,19 @@
-import { RADIO_STATIONS, STORAGE_KEY, WEAPONS } from './config.js';
-import { startMissionByIndex } from './missions-story.js';
+import {
+  RADIO_STATIONS,
+  STORAGE_KEY,
+  SAVE_SLOT_KEYS,
+  SETTINGS_STORAGE_KEY,
+  WEAPONS,
+  getWorldClockInfo
+} from './config.js';
+import { getDistrictName } from './city-map.js';
+import { startMissionByIndex, updateMissionGpsRoute } from './missions-story.js';
 import {
   applyPlayerOutfit,
   createInitialWeaponAmmo,
   createInitialWeaponMag
 } from './shops-economy.js';
+import { createInitialCareerStats } from './player-vitals.js';
 
 export function createAudioController() {
   let ctx = null;
@@ -13,6 +22,7 @@ export function createAudioController() {
   let masterGain = null;
   let sfxBus = null;
   let musicDuckGain = null;
+  let musicBus = null;
   let reverbNode = null;
   let reverbReturn = null;
   let noiseBuffer = null;
@@ -43,7 +53,9 @@ export function createAudioController() {
     footsteps: 0,
     jumps: 0,
     muted: false,
-    paused: false
+    paused: false,
+    musicVolume: 0.85,
+    sfxVolume: 0.9
   };
 
   function createNoiseBuffer(audio) {
@@ -87,20 +99,24 @@ export function createAudioController() {
       masterGain.gain.setValueAtTime(stats.muted ? 0 : 0.88, audio.currentTime);
 
       sfxBus = audio.createGain();
-      sfxBus.gain.setValueAtTime(1.0, audio.currentTime);
+      sfxBus.gain.setValueAtTime(stats.sfxVolume, audio.currentTime);
 
       musicDuckGain = audio.createGain();
       musicDuckGain.gain.setValueAtTime(1.0, audio.currentTime);
 
+      musicBus = audio.createGain();
+      musicBus.gain.setValueAtTime(stats.musicVolume, audio.currentTime);
+
       reverbNode = audio.createConvolver();
       reverbNode.buffer = createReverbImpulse(audio);
       reverbReturn = audio.createGain();
-      reverbReturn.gain.setValueAtTime(0.16, audio.currentTime);
+      reverbReturn.gain.setValueAtTime(0.16 * stats.sfxVolume, audio.currentTime);
 
       noiseBuffer = createNoiseBuffer(audio);
 
       sfxBus.connect(compressor);
-      musicDuckGain.connect(compressor);
+      musicDuckGain.connect(musicBus);
+      musicBus.connect(compressor);
       reverbNode.connect(reverbReturn);
       reverbReturn.connect(compressor);
       compressor.connect(masterGain);
@@ -1282,6 +1298,111 @@ export function createAudioController() {
     }
   }
 
+  function playOutcomeSting(type = 'wasted') {
+    const audio = ensureContext();
+    if (!audio || audio.state !== 'running') return;
+    try {
+      const now = audio.currentTime;
+      triggerDuck(0.15, 2.2);
+
+      // Dramatic deep bass drop sting
+      const sub = audio.createOscillator();
+      const subGain = audio.createGain();
+      sub.type = 'sine';
+      sub.frequency.setValueAtTime(type === 'busted' ? 112 : 94, now);
+      sub.frequency.exponentialRampToValueAtTime(type === 'busted' ? 34 : 26, now + 1.45);
+      subGain.gain.setValueAtTime(0.0001, now);
+      subGain.gain.linearRampToValueAtTime(0.32, now + 0.04);
+      subGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.6);
+      sub.connect(subGain);
+      subGain.connect(sfxBus || audio.destination);
+      sub.start(now);
+      sub.stop(now + 1.65);
+
+      // Low-passed minor brass/synth chord sting
+      const notes = type === 'busted' ? [146.83, 174.61, 220.0] : [130.81, 155.56, 196.0];
+      for (const freq of notes) {
+        const osc = audio.createOscillator();
+        const lp = audio.createBiquadFilter();
+        const g = audio.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, now);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.96, now + 1.4);
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(760, now);
+        lp.frequency.exponentialRampToValueAtTime(180, now + 1.35);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(0.036, now + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 1.45);
+        osc.connect(lp);
+        lp.connect(g);
+        g.connect(sfxBus || audio.destination);
+        osc.start(now);
+        osc.stop(now + 1.5);
+      }
+
+      if (type === 'busted') {
+        spawnNoiseBurst(audio, sfxBus || audio.destination, now + 0.05, 0.28, 'bandpass', 1100, 620, 0.08, 1.8);
+      }
+    } catch {
+      // Ignore WebAudio limits
+    }
+  }
+
+  function playFireAlarmTick() {
+    const audio = ensureContext();
+    if (!audio || audio.state !== 'running') return;
+    try {
+      const now = audio.currentTime;
+      const osc = audio.createOscillator();
+      const g = audio.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(980, now);
+      osc.frequency.setValueAtTime(780, now + 0.07);
+      g.gain.setValueAtTime(0.042, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+      osc.connect(g);
+      g.connect(sfxBus || audio.destination);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } catch {
+      // Ignore WebAudio limits
+    }
+  }
+
+  function setMusicVolume(v) {
+    const clamped = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0.85));
+    stats.musicVolume = clamped;
+    if (ctx && musicBus) {
+      try {
+        musicBus.gain.setTargetAtTime(clamped, ctx.currentTime, 0.03);
+      } catch {
+        // Ignore
+      }
+    }
+    return clamped;
+  }
+
+  function setSfxVolume(v) {
+    const clamped = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0.9));
+    stats.sfxVolume = clamped;
+    if (ctx && sfxBus) {
+      try {
+        sfxBus.gain.setTargetAtTime(clamped, ctx.currentTime, 0.03);
+      } catch {
+        // Ignore
+      }
+    }
+    if (ctx && reverbReturn) {
+      try {
+        reverbReturn.gain.setTargetAtTime(0.16 * clamped, ctx.currentTime, 0.03);
+      } catch {
+        // Ignore
+      }
+    }
+    return clamped;
+  }
+
   function setMuted(muted) {
     stats.muted = Boolean(muted);
     if (ctx && masterGain) {
@@ -1327,6 +1448,8 @@ export function createAudioController() {
     ensureContext,
     setMuted,
     toggleMute,
+    setMusicVolume,
+    setSfxVolume,
     setPaused,
     playShot,
     playMeleeSwing,
@@ -1350,49 +1473,146 @@ export function createAudioController() {
     playErrorTone,
     playHorn,
     playIntimatePulse,
+    playOutcomeSting,
+    playFireAlarmTick,
     updateRadio,
     update
   };
 }
 
-export function hasSavedCareer() {
+export const DEFAULT_SETTINGS = {
+  musicVolume: 0.85,
+  sfxVolume: 0.9,
+  mouseSensitivity: 1.0,
+  quality: 'HIGH',
+  autoQuality: true,
+  shadows: true,
+  hudDensity: 'FULL'
+};
+
+export function loadSettingsFromStorage() {
   try {
-    return Boolean(localStorage.getItem(STORAGE_KEY));
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') return { ...DEFAULT_SETTINGS };
+    return {
+      musicVolume:
+        typeof data.musicVolume === 'number' && Number.isFinite(data.musicVolume)
+          ? Math.max(0, Math.min(1, data.musicVolume))
+          : DEFAULT_SETTINGS.musicVolume,
+      sfxVolume:
+        typeof data.sfxVolume === 'number' && Number.isFinite(data.sfxVolume)
+          ? Math.max(0, Math.min(1, data.sfxVolume))
+          : DEFAULT_SETTINGS.sfxVolume,
+      mouseSensitivity:
+        typeof data.mouseSensitivity === 'number' && Number.isFinite(data.mouseSensitivity)
+          ? Math.max(0.3, Math.min(2.0, data.mouseSensitivity))
+          : DEFAULT_SETTINGS.mouseSensitivity,
+      quality: ['HIGH', 'MEDIUM', 'LOW'].includes(data.quality) ? data.quality : DEFAULT_SETTINGS.quality,
+      autoQuality: typeof data.autoQuality === 'boolean' ? data.autoQuality : DEFAULT_SETTINGS.autoQuality,
+      shadows: typeof data.shadows === 'boolean' ? data.shadows : DEFAULT_SETTINGS.shadows,
+      hudDensity: ['FULL', 'COMPACT'].includes(data.hudDensity) ? data.hudDensity : DEFAULT_SETTINGS.hudDensity
+    };
   } catch {
-    return false;
+    return { ...DEFAULT_SETTINGS };
   }
 }
 
-export function clearCareerStorage() {
+export function saveSettingsToStorage(settings) {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     return true;
   } catch {
     return false;
   }
 }
 
-export function getSavedCareerSummary() {
+export function applyRuntimeSettings(state, worldRenderer) {
+  const settings = (state && state.settings) || DEFAULT_SETTINGS;
+  if (state && state.audio) {
+    if (state.audio.setMusicVolume) state.audio.setMusicVolume(settings.musicVolume);
+    if (state.audio.setSfxVolume) state.audio.setSfxVolume(settings.sfxVolume);
+  }
+  if (worldRenderer && worldRenderer.applySettings) {
+    worldRenderer.applySettings(settings);
+  }
+}
+
+export function getSaveSlotKey(slotIndex = 1) {
+  const idx = Math.max(1, Math.min(SAVE_SLOT_KEYS.length, Math.floor(slotIndex)));
+  return SAVE_SLOT_KEYS[idx - 1];
+}
+
+export function hasSavedCareer() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    return SAVE_SLOT_KEYS.some((k) => Boolean(localStorage.getItem(k)));
+  } catch {
+    return false;
+  }
+}
+
+export function hasSavedCareerInSlot(slotIndex = 1) {
+  try {
+    return Boolean(localStorage.getItem(getSaveSlotKey(slotIndex)));
+  } catch {
+    return false;
+  }
+}
+
+export function clearCareerSlot(slotIndex = 1) {
+  try {
+    localStorage.removeItem(getSaveSlotKey(slotIndex));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearCareerStorage() {
+  return clearCareerSlot(1);
+}
+
+export function getSaveSlotSummary(slotIndex = 1) {
+  try {
+    const raw = localStorage.getItem(getSaveSlotKey(slotIndex));
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || typeof data !== 'object') return null;
+    const worldTime = typeof data.worldTime === 'number' && Number.isFinite(data.worldTime) ? data.worldTime : 17.2;
+    const clock = getWorldClockInfo(worldTime);
     return {
+      slot: slotIndex,
       cash: typeof data.cash === 'number' ? Math.max(0, data.cash) : 42500,
+      hp: typeof data.hp === 'number' ? Math.round(data.hp) : 100,
       maxHp: typeof data.maxHp === 'number' ? data.maxHp : 100,
       completedCount: Array.isArray(data.completedIds) ? data.completedIds.length : 0,
-      missionIndex: typeof data.missionIndex === 'number' ? data.missionIndex : 0
+      missionIndex: typeof data.missionIndex === 'number' ? data.missionIndex : 0,
+      worldTime,
+      clockFormatted: clock.formatted,
+      districtName: typeof data.districtName === 'string' ? data.districtName : 'OCEAN DRIVE',
+      savedAt: typeof data.savedAt === 'string' ? data.savedAt : ''
     };
   } catch {
     return null;
   }
 }
 
-export function saveCareerToStorage(state) {
+export function getSavedCareerSummary() {
+  return getSaveSlotSummary(1) || getSaveSlotSummary(2) || getSaveSlotSummary(3);
+}
+
+export function listSaveSlots() {
+  return [1, 2, 3].map((slot) => getSaveSlotSummary(slot));
+}
+
+export function saveCareerToSlot(state, slotIndex = 1) {
   try {
+    const key = getSaveSlotKey(slotIndex);
+    const districtName = getDistrictName(state.player.x, state.player.y);
     const payload = {
-      version: 3,
+      version: 4,
+      slot: slotIndex,
       savedAt: new Date().toISOString(),
       cash: state.player.cash,
       hp: state.player.hp,
@@ -1404,13 +1624,19 @@ export function saveCareerToStorage(state) {
       outfitId: state.player.outfitId || 'default_coral',
       radioIndex: state.player.radioIndex,
       missionIndex: state.missions.currentIndex,
-      completedIds: state.missions.completedIds
+      completedIds: state.missions.completedIds,
+      worldTime: typeof state.worldTime === 'number' ? state.worldTime : 17.2,
+      careerStats: { ...createInitialCareerStats(), ...(state.careerStats || {}) },
+      customWaypoint: state.customWaypoint ? { x: state.customWaypoint.x, y: state.customWaypoint.y } : null,
+      districtName
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    state.lastSaveStatus = 'CAREER SAVED TO LOCALSTORAGE';
+    localStorage.setItem(key, JSON.stringify(payload));
+    state.hasSavedCareer = hasSavedCareer();
+    state.lastSaveStatus =
+      slotIndex === 1 ? 'CAREER SAVED TO LOCALSTORAGE' : `CAREER SAVED TO SLOT ${slotIndex}`;
     state.hudBanner = {
-      title: 'SAFEHOUSE CAREER DOSSIER SAVED',
-      subtitle: `BANKROLL $${state.player.cash.toLocaleString()} • PERSISTED TO LOCALSTORAGE`,
+      title: `SAFEHOUSE SLOT ${slotIndex} SAVED`,
+      subtitle: `BANKROLL $${state.player.cash.toLocaleString()} • ${getWorldClockInfo(payload.worldTime).formatted} • PERSISTED`,
       color: '#63c792',
       timer: 3.0
     };
@@ -1420,9 +1646,13 @@ export function saveCareerToStorage(state) {
   }
 }
 
-export function loadCareerFromStorage(state) {
+export function saveCareerToStorage(state) {
+  return saveCareerToSlot(state, 1);
+}
+
+export function loadCareerFromSlot(state, slotIndex = 1) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getSaveSlotKey(slotIndex));
     if (!raw) return false;
     const data = JSON.parse(raw);
     if (!data || typeof data !== 'object') return false;
@@ -1434,7 +1664,7 @@ export function loadCareerFromStorage(state) {
       state.player.maxHp = Math.max(100, Math.min(125, Math.floor(data.maxHp)));
     }
     if (typeof data.hp === 'number' && Number.isFinite(data.hp)) {
-      state.player.hp = Math.max(15, Math.min(state.player.maxHp || 100, data.hp));
+      state.player.hp = Math.max(1, Math.min(state.player.maxHp || 100, data.hp));
     }
     if (typeof data.armor === 'number' && Number.isFinite(data.armor)) {
       state.player.armor = Math.max(0, Math.min(100, data.armor));
@@ -1474,12 +1704,62 @@ export function loadCareerFromStorage(state) {
     if (Array.isArray(data.completedIds)) {
       state.missions.completedIds = [...data.completedIds];
     }
+    if (typeof data.worldTime === 'number' && Number.isFinite(data.worldTime)) {
+      state.worldTime = ((data.worldTime % 24) + 24) % 24;
+    }
+    if (data.careerStats && typeof data.careerStats === 'object') {
+      const base = createInitialCareerStats();
+      for (const key of Object.keys(base)) {
+        if (typeof data.careerStats[key] === 'number' && Number.isFinite(data.careerStats[key])) {
+          base[key] = Math.max(0, data.careerStats[key]);
+        }
+      }
+      state.careerStats = base;
+    }
+    if (
+      data.customWaypoint &&
+      typeof data.customWaypoint.x === 'number' &&
+      typeof data.customWaypoint.y === 'number'
+    ) {
+      state.customWaypoint = { x: data.customWaypoint.x, y: data.customWaypoint.y };
+    } else {
+      state.customWaypoint = null;
+    }
     if (typeof data.missionIndex === 'number' && Number.isFinite(data.missionIndex)) {
       startMissionByIndex(state, data.missionIndex);
+    } else {
+      updateMissionGpsRoute(state);
     }
-    state.lastSaveStatus = 'LOADED SAVED CAREER FROM LOCALSTORAGE';
+    state.lastSaveStatus =
+      slotIndex === 1 ? 'LOADED SAVED CAREER FROM LOCALSTORAGE' : `LOADED CAREER SLOT ${slotIndex}`;
     return true;
   } catch {
     return false;
   }
+}
+
+export function loadCareerFromStorage(state) {
+  if (loadCareerFromSlot(state, 1)) return true;
+  if (loadCareerFromSlot(state, 2)) return true;
+  return loadCareerFromSlot(state, 3);
+}
+
+export function sleepToHour(state, targetHour = 8.0) {
+  if (!state || state.isShowcaseShot) return false;
+  const h = ((Number(targetHour) % 24) + 24) % 24;
+  state.worldTime = h;
+  if (state.player) {
+    state.player.hp = state.player.maxHp || 100;
+  }
+  const clock = getWorldClockInfo(h);
+  state.hudBanner = {
+    title: `RESTED UNTIL ${clock.formatted} • ${clock.phase}`,
+    subtitle: 'HEALTH RESTORED • SOLARIS BAY TIME ADVANCED',
+    color: '#e0b268',
+    timer: 3.0
+  };
+  if (state.audio && state.audio.playShopChime) {
+    state.audio.playShopChime(true);
+  }
+  return true;
 }

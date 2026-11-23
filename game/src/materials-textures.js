@@ -609,6 +609,33 @@ export function createLightPoolTexture() {
   return tex;
 }
 
+export function createHeadlightBeamTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+
+  ctx.clearRect(0, 0, 256, 128);
+  const grad = ctx.createLinearGradient(0, 64, 256, 64);
+  grad.addColorStop(0.0, 'rgba(255, 242, 204, 0.72)');
+  grad.addColorStop(0.35, 'rgba(255, 236, 190, 0.34)');
+  grad.addColorStop(0.82, 'rgba(245, 224, 175, 0.08)');
+  grad.addColorStop(1.0, 'rgba(245, 224, 175, 0.0)');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(0, 42);
+  ctx.lineTo(256, 6);
+  ctx.lineTo(256, 122);
+  ctx.lineTo(0, 86);
+  ctx.closePath();
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 /**
  * Sleek flat road-flush GPS chevron decal texture (zero clipping, comfortable subtle contrast).
  */
@@ -1388,6 +1415,7 @@ export function createMaterialLibrary(renderer) {
   const shoreFoamTex = createShoreFoamTexture();
   const contactShadowTex = createContactShadowTexture();
   const lightPoolTex = createLightPoolTexture();
+  const headlightBeamTex = createHeadlightBeamTexture();
   const gpsChevronTex = createGpsChevronTexture();
   const beaconRingTex = createBeaconRingTexture();
   const softPuffTex = createSoftCloudPuffTexture();
@@ -1576,6 +1604,7 @@ export function createMaterialLibrary(renderer) {
     shoreFoamTex,
     contactShadowTex,
     lightPoolTex,
+    headlightBeamTex,
     gpsChevronTex,
     beaconRingTex,
     softPuffTex,
@@ -1892,6 +1921,21 @@ export function createMaterialLibrary(renderer) {
       transparent: true,
       opacity: 0.20,
       depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }),
+    headlightBeamMaterial: new THREE.MeshBasicMaterial({
+      map: headlightBeamTex,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }),
+    streetlampGlowMaterial: new THREE.MeshBasicMaterial({
+      color: 0xffd28a,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending
     }),
     gpsChevronMaterial: new THREE.MeshBasicMaterial({

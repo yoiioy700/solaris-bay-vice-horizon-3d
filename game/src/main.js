@@ -3,22 +3,33 @@ import { createCityMap } from './city-map.js';
 import { spawnInitialVehicles, updateVehicles, tryToggleVehicle } from './vehicles.js';
 import { spawnInitialPedestrians, updatePedestrians } from './pedestrians.js';
 import { createWantedState, updatePoliceSystem } from './police-wanted.js';
-import { createMissionState, startMissionByIndex, updateMissionSystem } from './missions-story.js';
+import {
+  createMissionState,
+  startMissionByIndex,
+  updateMissionSystem
+} from './missions-story.js';
 import {
   updatePlayerOnFoot,
   updateCombatAndProjectiles,
   firePlayerWeapon,
   switchPlayerWeapon,
   startWeaponReload,
+  getDriveByWeapon,
   performMeleePunch,
-  computeAimRay
+  computeAimRay,
+  updatePlayerOutcome
 } from './combat-weapons.js';
+import { createInitialCareerStats } from './player-vitals.js';
 import {
   createAudioController,
   saveCareerToStorage,
   loadCareerFromStorage,
   hasSavedCareer,
-  clearCareerStorage
+  clearCareerStorage,
+  loadSettingsFromStorage,
+  applyRuntimeSettings,
+  saveSettingsToStorage,
+  sleepToHour
 } from './audio-save.js';
 import {
   createInitialWeaponAmmo,
@@ -46,7 +57,16 @@ import {
   updateNightlifeSystem
 } from './nightlife-romance.js';
 import { createWorldRenderer3D } from './render-world.js';
-import { renderHud2D, getStartScreenLayout, getPauseMenuLayout } from './render-hud.js';
+import { renderHud2D, getStartScreenLayout } from './render-hud.js';
+import {
+  PAUSE_TABS,
+  createPauseHubState,
+  handlePauseHubKeyDown,
+  handlePauseHubMouseMove,
+  handlePauseHubMouseDown,
+  handlePauseHubMouseUp,
+  handlePauseHubWheel
+} from './pause-hub.js';
 import { applyShowcaseShotIfRequested } from './showcase-shots.js';
 
 const webglCanvas = document.getElementById('webgl-canvas');
@@ -90,6 +110,7 @@ function requestPointerLockSafe() {
 function isAnyModalOpen(st) {
   return Boolean(
     st.startScreenOpen ||
+      st.outcome ||
       (st.shopModal && st.shopModal.open) ||
       st.safehouseModalOpen ||
       (st.nightlife &&
@@ -99,11 +120,23 @@ function isAnyModalOpen(st) {
 
 const state = {
   time: 0,
+  worldTime: 17.2,
+  nightFactor: 0,
   paused: false,
+  pauseTab: 'SAVE',
+  pauseOpenedFromTitle: false,
+  pauseMap: createPauseHubState(),
   pauseHover: null,
   startScreenOpen: true,
   startScreenHover: null,
   hasSavedCareer: hasSavedCareer(),
+  isShowcaseShot: false,
+  outcome: null,
+  careerStats: createInitialCareerStats(),
+  customWaypoint: null,
+  customWaypointGps: [],
+  settings: loadSettingsFromStorage(),
+  liveFps: 60,
   cityMap,
   player: {
     x: initialVehicles[0].x,
@@ -164,6 +197,8 @@ const state = {
     aiming: false,
     aimBlend: 0,
     orbitIdleTimer: 0,
+    vehCamPreset: 1,
+    vehCamLabelTimer: 0,
     trauma: 0,
     hitMarkerTimer: 0,
     hitMarkerCrit: false,
@@ -215,8 +250,42 @@ function setPaused(paused) {
   }
 }
 
-function returnToTitleScreen() {
+function openPauseHub(tab = null, fromTitle = false) {
+  if (state.outcome || state.isShowcaseShot) return;
+  state.safehouseModalOpen = false;
+  closeShopModal(state);
+  closeNightlifeMenus(state);
+  if (tab && PAUSE_TABS.includes(tab)) {
+    state.pauseTab = tab;
+  } else if (!PAUSE_TABS.includes(state.pauseTab)) {
+    state.pauseTab = 'SAVE';
+  }
+  if (state.pauseTab === 'MAP' && state.pauseMap) {
+    state.pauseMap.panX = state.player.x;
+    state.pauseMap.panY = state.player.y;
+  }
+  state.pauseOpenedFromTitle = Boolean(fromTitle);
+  if (fromTitle) {
+    state.startScreenOpen = false;
+  }
+  setPaused(true);
+}
+
+function closePauseHub() {
+  if (!state.paused) return;
+  if (state.pauseOpenedFromTitle) {
+    state.pauseOpenedFromTitle = false;
+    setPaused(false);
+    state.startScreenOpen = true;
+    return;
+  }
   setPaused(false);
+}
+
+function returnToTitleScreen() {
+  state.pauseOpenedFromTitle = false;
+  setPaused(false);
+  state.outcome = null;
   state.startScreenOpen = true;
   state.startScreenHover = null;
   state.safehouseModalOpen = false;
@@ -232,11 +301,18 @@ function returnToTitleScreen() {
 function resetToNewGame(clearSave = true) {
   if (clearSave) {
     clearCareerStorage();
-    state.hasSavedCareer = false;
+    state.hasSavedCareer = hasSavedCareer();
   }
 
+  state.pauseOpenedFromTitle = false;
   state.paused = false;
   state.pauseHover = null;
+  state.outcome = null;
+  state.worldTime = 17.2;
+  state.nightFactor = 0;
+  state.careerStats = createInitialCareerStats();
+  state.customWaypoint = null;
+  state.customWaypointGps = [];
   state.vehicles = spawnInitialVehicles(cityMap);
   state.vehicles[0].driver = 'player';
   state.pedestrians = spawnInitialPedestrians(cityMap);
@@ -299,6 +375,8 @@ function resetToNewGame(clearSave = true) {
   state.camera.aiming = false;
   state.camera.aimBlend = 0;
   state.camera.orbitIdleTimer = 0;
+  state.camera.vehCamPreset = 1;
+  state.camera.vehCamLabelTimer = 0;
   state.camera.trauma = 0;
   state.camera.hitMarkerTimer = 0;
   state.camera.damageFlash = 0;
@@ -322,6 +400,7 @@ function resetToNewGame(clearSave = true) {
 
   state.audio.ensureContext();
   if (state.audio.setPaused) state.audio.setPaused(false);
+  applyRuntimeSettings(state, worldRenderer);
   if (state.player.vehicle) {
     state.audio.onVehicleEnter(state.player.vehicle);
   }
@@ -330,8 +409,10 @@ function resetToNewGame(clearSave = true) {
 function continueSavedCareer() {
   if (!hasSavedCareer()) return false;
   loadCareerFromStorage(state);
+  state.pauseOpenedFromTitle = false;
   state.paused = false;
   state.pauseHover = null;
+  state.outcome = null;
   state.hasSavedCareer = true;
   state.startScreenOpen = false;
   state.startScreenHover = null;
@@ -346,6 +427,7 @@ function continueSavedCareer() {
   };
   state.audio.ensureContext();
   if (state.audio.setPaused) state.audio.setPaused(false);
+  applyRuntimeSettings(state, worldRenderer);
   if (state.player.vehicle) {
     state.audio.onVehicleEnter(state.player.vehicle);
   }
@@ -357,11 +439,15 @@ initialVehicles[0].driver = 'player';
 startMissionByIndex(state, 0);
 
 const activeShot = applyShowcaseShotIfRequested(state);
+state.isShowcaseShot = Boolean(activeShot);
 if (activeShot) {
   state.startScreenOpen = false;
+  state.worldTime = 17.2;
   loadCareerFromStorage(state);
-  // Re-apply requested shot after load so showcase state is deterministic
+  state.customWaypoint = null;
+  state.customWaypointGps = [];
   applyShowcaseShotIfRequested(state);
+  state.worldTime = 17.2;
   state.audio.stats.engineRunning = Boolean(state.player.vehicle);
 } else {
   state.startScreenOpen = true;
@@ -369,9 +455,19 @@ if (activeShot) {
 }
 
 const worldRenderer = createWorldRenderer3D(webglCanvas, state);
-if (!activeShot) {
+if (activeShot) {
+  worldRenderer.renderer.toneMappingExposure = 0.96;
+} else {
+  applyRuntimeSettings(state, worldRenderer);
   computeAimRay(state);
 }
+
+const pauseHubActions = {
+  worldRenderer,
+  closeHub: () => closePauseHub(),
+  startNewGame: () => resetToNewGame(true),
+  returnToTitle: () => returnToTitleScreen()
+};
 
 let wasPointerLocked = false;
 if (typeof document !== 'undefined') {
@@ -386,7 +482,7 @@ if (typeof document !== 'undefined') {
       !activeShot &&
       !state.paused
     ) {
-      setPaused(true);
+      openPauseHub(null, false);
     }
     wasPointerLocked = locked;
   });
@@ -402,7 +498,7 @@ window.addEventListener('blur', () => {
 window.addEventListener('keydown', (e) => {
   state.audio.ensureContext();
 
-  // Start / Title Screen keyboard shortcuts ([Enter] New Game, [C] Continue Career)
+  // Start / Title Screen shortcuts
   if (state.startScreenOpen) {
     state.input.keys[e.code] = true;
     if (e.code === 'Enter') {
@@ -411,32 +507,30 @@ window.addEventListener('keydown', (e) => {
     } else if (e.code === 'KeyC' && hasSavedCareer()) {
       e.preventDefault();
       continueSavedCareer();
+    } else if (e.code === 'KeyL') {
+      e.preventDefault();
+      openPauseHub('SAVE', true);
+    } else if (e.code === 'KeyO') {
+      e.preventDefault();
+      openPauseHub('SETTINGS', true);
     }
     return;
   }
 
-  // Pause Menu controls ([P / ESC] Resume, [K] Save, [U] Audio Mute, [N] New Game, [T] Title Screen)
+  // Unified 7-Tab Pause Hub keyboard delegation
   if (state.paused) {
-    if (e.code === 'KeyP' || e.code === 'Escape') {
-      e.preventDefault();
-      setPaused(false);
-    } else if (e.code === 'KeyK') {
-      if (saveCareerToStorage(state)) {
-        state.hasSavedCareer = true;
-      }
-    } else if (e.code === 'KeyU') {
-      if (state.audio && state.audio.toggleMute) state.audio.toggleMute();
-    } else if (e.code === 'KeyN') {
-      resetToNewGame(true);
-    } else if (e.code === 'KeyT') {
-      returnToTitleScreen();
-    }
+    handlePauseHubKeyDown(e, state, pauseHubActions);
+    return;
+  }
+
+  // Ignore game actions during WASTED / BUSTED slow-mo outcome
+  if (state.outcome) {
     return;
   }
 
   state.input.keys[e.code] = true;
 
-  // Active VIP Suite or Car Sex session controls ([SPACE] rhythm boost, [ESC] finish early)
+  // Active VIP Suite or Car Sex session controls
   if (state.nightlife.session) {
     if (e.code === 'Space') {
       e.preventDefault();
@@ -448,34 +542,14 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.code === 'Escape') {
-    if (state.paused) {
-    const layout = getPauseMenuLayout();
-    const rects = [
-      layout.resumeRect,
-      layout.saveRect,
-      layout.audioRect,
-      layout.newGameRect,
-      layout.titleRect
-    ];
-    let hovered = null;
-    for (const r of rects) {
-      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
-        hovered = r.id;
-        break;
-      }
-    }
-    state.pauseHover = hovered;
-    return;
-  }
-
-  if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
+    if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
       closeNightlifeMenus(state);
     } else if (state.shopModal.open) {
       closeShopModal(state);
     } else if (state.safehouseModalOpen) {
       state.safehouseModalOpen = false;
     } else if (!activeShot) {
-      setPaused(true);
+      openPauseHub(null, false);
     }
     state.camera.aiming = false;
     exitPointerLockSafe();
@@ -484,7 +558,13 @@ window.addEventListener('keydown', (e) => {
 
   if (e.code === 'KeyP' && !isAnyModalOpen(state) && !activeShot) {
     e.preventDefault();
-    setPaused(true);
+    openPauseHub(null, false);
+    return;
+  }
+
+  if (e.code === 'KeyM' && !activeShot) {
+    e.preventDefault();
+    openPauseHub('MAP', false);
     return;
   }
 
@@ -498,27 +578,7 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.code === 'KeyE') {
-    if (state.paused) {
-    const layout = getPauseMenuLayout();
-    const rects = [
-      layout.resumeRect,
-      layout.saveRect,
-      layout.audioRect,
-      layout.newGameRect,
-      layout.titleRect
-    ];
-    let hovered = null;
-    for (const r of rects) {
-      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
-        hovered = r.id;
-        break;
-      }
-    }
-    state.pauseHover = hovered;
-    return;
-  }
-
-  if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
+    if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
       closeNightlifeMenus(state);
       return;
     }
@@ -546,7 +606,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (e.code === 'Tab' || e.code === 'KeyM') {
+  if (e.code === 'Tab') {
     e.preventDefault();
     if (state.shopModal.open) closeShopModal(state);
     closeNightlifeMenus(state);
@@ -571,27 +631,6 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // While VIP / Car Service menu is open, Digit1..Digit2 trigger service options cleanly
-  if (state.paused) {
-    const layout = getPauseMenuLayout();
-    const rects = [
-      layout.resumeRect,
-      layout.saveRect,
-      layout.audioRect,
-      layout.newGameRect,
-      layout.titleRect
-    ];
-    let hovered = null;
-    for (const r of rects) {
-      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
-        hovered = r.id;
-        break;
-      }
-    }
-    state.pauseHover = hovered;
-    return;
-  }
-
   if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
     if (e.code.startsWith('Digit')) {
       const num = Number(e.code.replace('Digit', ''));
@@ -602,7 +641,6 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // While Shop Overlay Drawer is open, Digit1..Digit5 purchase shop items instead of switching weapons
   if (state.shopModal.open) {
     if (e.code.startsWith('Digit')) {
       const num = Number(e.code.replace('Digit', ''));
@@ -625,12 +663,22 @@ window.addEventListener('keydown', (e) => {
     state.player.radioIndex = (state.player.radioIndex + 1) % RADIO_STATIONS.length;
   } else if (e.code === 'KeyR') {
     if (state.player.vehicle) {
-      state.player.radioIndex = (state.player.radioIndex + 1) % RADIO_STATIONS.length;
+      const dbW = getDriveByWeapon(state.player);
+      const curMag = state.player.weaponMag?.[dbW.id] ?? 0;
+      const res = state.player.weaponAmmo?.[dbW.id] ?? 0;
+      if (dbW && !dbW.isMelee && curMag < dbW.magSize && res > 0) {
+        startWeaponReload(state);
+      } else {
+        state.player.radioIndex = (state.player.radioIndex + 1) % RADIO_STATIONS.length;
+      }
     } else {
       startWeaponReload(state);
     }
   } else if (e.code === 'KeyV') {
-    if (!state.player.vehicle) {
+    if (state.player.vehicle) {
+      state.camera.vehCamPreset = ((state.camera.vehCamPreset ?? 1) + 1) % 4;
+      state.camera.vehCamLabelTimer = 2.2;
+    } else {
       performMeleePunch(state);
     }
   } else if (e.code === 'KeyQ') {
@@ -659,46 +707,22 @@ window.addEventListener('mousemove', (e) => {
   state.input.mouseY = my;
 
   if (state.startScreenOpen) {
-    const { newGameRect, continueRect } = getStartScreenLayout();
-    if (
-      mx >= newGameRect.x &&
-      mx <= newGameRect.x + newGameRect.w &&
-      my >= newGameRect.y &&
-      my <= newGameRect.y + newGameRect.h
-    ) {
-      state.startScreenHover = 'new';
-    } else if (
-      mx >= continueRect.x &&
-      mx <= continueRect.x + continueRect.w &&
-      my >= continueRect.y &&
-      my <= continueRect.y + continueRect.h
-    ) {
-      state.startScreenHover = 'continue';
-    } else {
-      state.startScreenHover = null;
-    }
+    const { newGameRect, continueRect, loadSlotRect, settingsRect } = getStartScreenLayout();
+    const hit = (r) => r && mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
+    if (hit(newGameRect)) state.startScreenHover = 'new';
+    else if (hit(continueRect)) state.startScreenHover = 'continue';
+    else if (hit(loadSlotRect)) state.startScreenHover = 'load';
+    else if (hit(settingsRect)) state.startScreenHover = 'settings';
+    else state.startScreenHover = null;
     return;
   }
 
   if (state.paused) {
-    const layout = getPauseMenuLayout();
-    const rects = [
-      layout.resumeRect,
-      layout.saveRect,
-      layout.audioRect,
-      layout.newGameRect,
-      layout.titleRect
-    ];
-    let hovered = null;
-    for (const r of rects) {
-      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
-        hovered = r.id;
-        break;
-      }
-    }
-    state.pauseHover = hovered;
+    handlePauseHubMouseMove(state, mx, my, pauseHubActions);
     return;
   }
+
+  if (state.outcome) return;
 
   if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
     updateNightlifeMenuHover(state, mx, my);
@@ -715,7 +739,8 @@ window.addEventListener('mousemove', (e) => {
   if (isLocked || hasButtons) {
     const dx = Math.max(-60, Math.min(60, e.movementX || 0));
     const dy = Math.max(-60, Math.min(60, e.movementY || 0));
-    const sens = state.camera.aiming ? 0.0018 : 0.0026;
+    const mult = (state.settings && state.settings.mouseSensitivity) || 1.0;
+    const sens = (state.camera.aiming ? 0.0018 : 0.0026) * mult;
     state.camera.yaw += dx * sens;
     state.camera.pitch = Math.max(-0.55, Math.min(0.68, state.camera.pitch - dy * sens));
     if (state.player.vehicle && (Math.abs(dx) > 0 || Math.abs(dy) > 0)) {
@@ -735,43 +760,26 @@ webglCanvas.addEventListener('mousedown', (e) => {
 
   if (state.startScreenOpen) {
     if (e.button !== 0) return;
-    const { newGameRect, continueRect } = getStartScreenLayout();
-    if (
-      mx >= newGameRect.x &&
-      mx <= newGameRect.x + newGameRect.w &&
-      my >= newGameRect.y &&
-      my <= newGameRect.y + newGameRect.h
-    ) {
+    const { newGameRect, continueRect, loadSlotRect, settingsRect } = getStartScreenLayout();
+    const hit = (r) => r && mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
+    if (hit(newGameRect)) {
       resetToNewGame(true);
-    } else if (
-      mx >= continueRect.x &&
-      mx <= continueRect.x + continueRect.w &&
-      my >= continueRect.y &&
-      my <= continueRect.y + continueRect.h &&
-      hasSavedCareer()
-    ) {
+    } else if (hit(continueRect) && hasSavedCareer()) {
       continueSavedCareer();
+    } else if (hit(loadSlotRect)) {
+      openPauseHub('SAVE', true);
+    } else if (hit(settingsRect)) {
+      openPauseHub('SETTINGS', true);
     }
     return;
   }
 
   if (state.paused) {
-    if (e.button !== 0) return;
-    const layout = getPauseMenuLayout();
-    const hit = (r) => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
-    if (hit(layout.resumeRect)) {
-      setPaused(false);
-    } else if (hit(layout.saveRect)) {
-      if (saveCareerToStorage(state)) state.hasSavedCareer = true;
-    } else if (hit(layout.audioRect)) {
-      if (state.audio && state.audio.toggleMute) state.audio.toggleMute();
-    } else if (hit(layout.newGameRect)) {
-      resetToNewGame(true);
-    } else if (hit(layout.titleRect)) {
-      returnToTitleScreen();
-    }
+    handlePauseHubMouseDown(state, mx, my, e.button, pauseHubActions);
     return;
   }
+
+  if (state.outcome) return;
 
   if (e.button === 2) {
     e.preventDefault();
@@ -785,26 +793,6 @@ webglCanvas.addEventListener('mousedown', (e) => {
 
   if (state.nightlife.session) {
     boostNightlifeRhythm(state);
-    return;
-  }
-
-  if (state.paused) {
-    const layout = getPauseMenuLayout();
-    const rects = [
-      layout.resumeRect,
-      layout.saveRect,
-      layout.audioRect,
-      layout.newGameRect,
-      layout.titleRect
-    ];
-    let hovered = null;
-    for (const r of rects) {
-      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
-        hovered = r.id;
-        break;
-      }
-    }
-    state.pauseHover = hovered;
     return;
   }
 
@@ -837,21 +825,12 @@ webglCanvas.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mouseup', (e) => {
+  const rect = webglCanvas.getBoundingClientRect();
+  const mx = ((e.clientX - rect.left) / (rect.width || 1280)) * 1280;
+  const my = ((e.clientY - rect.top) / (rect.height || 720)) * 720;
+
   if (state.paused) {
-    if (e.button !== 0) return;
-    const layout = getPauseMenuLayout();
-    const hit = (r) => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
-    if (hit(layout.resumeRect)) {
-      setPaused(false);
-    } else if (hit(layout.saveRect)) {
-      if (saveCareerToStorage(state)) state.hasSavedCareer = true;
-    } else if (hit(layout.audioRect)) {
-      if (state.audio && state.audio.toggleMute) state.audio.toggleMute();
-    } else if (hit(layout.newGameRect)) {
-      resetToNewGame(true);
-    } else if (hit(layout.titleRect)) {
-      returnToTitleScreen();
-    }
+    handlePauseHubMouseUp(state, mx, my, e.button, pauseHubActions);
     return;
   }
 
@@ -865,7 +844,14 @@ window.addEventListener('mouseup', (e) => {
 webglCanvas.addEventListener(
   'wheel',
   (e) => {
-    if (state.paused || isAnyModalOpen(state) || state.player.vehicle) return;
+    if (state.paused) {
+      const rect = webglCanvas.getBoundingClientRect();
+      const mx = ((e.clientX - rect.left) / (rect.width || 1280)) * 1280;
+      const my = ((e.clientY - rect.top) / (rect.height || 720)) * 720;
+      handlePauseHubWheel(state, mx, my, e.deltaY);
+      return;
+    }
+    if (isAnyModalOpen(state) || state.player.vehicle) return;
     if (Math.abs(e.deltaY) < 2) return;
     const step = e.deltaY > 0 ? 1 : WEAPONS.length - 1;
     switchPlayerWeapon(state, state.player.weaponIndex + step);
@@ -874,19 +860,70 @@ webglCanvas.addEventListener(
 );
 
 let lastTime = performance.now();
+let lowFpsAccum = 0;
 
 function frame(now) {
   const rawDt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
   lastTime = now;
 
+  // Rolling FPS tracking & optional Auto-Quality step-down (disabled during headless QA / showcase)
+  const instFps = 1 / Math.max(0.004, rawDt);
+  state.liveFps = state.liveFps * 0.9 + instFps * 0.1;
+  const isHeadlessQa = typeof navigator !== 'undefined' && navigator.webdriver === true;
+  if (
+    !activeShot &&
+    !isHeadlessQa &&
+    !state.paused &&
+    !state.startScreenOpen &&
+    state.settings &&
+    state.settings.autoQuality
+  ) {
+    if (state.liveFps < 28) {
+      lowFpsAccum += rawDt;
+      if (lowFpsAccum > 2.5) {
+        lowFpsAccum = 0;
+        if (state.settings.quality === 'HIGH') {
+          state.settings.quality = 'MEDIUM';
+          saveSettingsToStorage(state.settings);
+          applyRuntimeSettings(state, worldRenderer);
+          state.hudBanner = {
+            title: 'AUTO-FPS: QUALITY SET TO MEDIUM',
+            subtitle: 'KEEPING SMOOTH FRAME PACING • ADJUST IN SETTINGS [P]',
+            color: '#64bcc9',
+            timer: 2.4
+          };
+        } else if (state.settings.quality === 'MEDIUM') {
+          state.settings.quality = 'LOW';
+          saveSettingsToStorage(state.settings);
+          applyRuntimeSettings(state, worldRenderer);
+          state.hudBanner = {
+            title: 'AUTO-FPS: QUALITY SET TO LOW',
+            subtitle: 'OPTIMIZED DRAW CULLING • ADJUST IN SETTINGS [P]',
+            color: '#64bcc9',
+            timer: 2.4
+          };
+        }
+      }
+    } else {
+      lowFpsAccum = 0;
+    }
+  }
+
+  const simDt = state.outcome ? rawDt * 0.22 : rawDt;
+
   if (!activeShot) {
     if (!state.paused) {
-      state.time += rawDt;
+      state.time += simDt;
 
       if (state.startScreenOpen) {
-        updateVehicles(state, rawDt);
-        updatePedestrians(state, rawDt);
+        updateVehicles(state, simDt);
+        updatePedestrians(state, simDt);
       } else {
+        // Advance 24h Day/Night clock (1 in-game hour = 60s real-time) during live gameplay
+        if (!state.outcome) {
+          state.worldTime = (state.worldTime + simDt / 60) % 24;
+        }
+
         if (state.player.vehicle && !isAnyModalOpen(state)) {
           state.camera.aiming = false;
           state.camera.orbitIdleTimer = Math.max(0, (state.camera.orbitIdleTimer || 0) - rawDt);
@@ -897,18 +934,19 @@ function frame(now) {
         }
 
         if (state.input.jumpBuffer > 0) {
-          state.input.jumpBuffer = Math.max(0, state.input.jumpBuffer - rawDt);
+          state.input.jumpBuffer = Math.max(0, state.input.jumpBuffer - simDt);
         }
 
-        updateVehicles(state, rawDt);
-        updatePlayerOnFoot(state, rawDt);
-        updatePedestrians(state, rawDt);
-        updatePoliceSystem(state, rawDt);
-        updateCombatAndProjectiles(state, rawDt);
-        updateMissionSystem(state, rawDt);
-        updateShopSystem(state, rawDt);
-        updateNightlifeSystem(state, rawDt);
-        state.audio.update(state, rawDt);
+        updateVehicles(state, simDt);
+        updatePlayerOnFoot(state, simDt);
+        updatePedestrians(state, simDt);
+        updatePoliceSystem(state, simDt);
+        updateCombatAndProjectiles(state, simDt);
+        updateMissionSystem(state, simDt);
+        updateShopSystem(state, simDt);
+        updateNightlifeSystem(state, simDt);
+        updatePlayerOutcome(state, rawDt);
+        state.audio.update(state, simDt);
 
         if (state.hudBanner && state.hudBanner.timer > 0) {
           state.hudBanner.timer = Math.max(0, state.hudBanner.timer - rawDt);
@@ -919,7 +957,7 @@ function frame(now) {
     state.time = 1.25;
   }
 
-  worldRenderer.render(state.paused ? 0 : rawDt);
+  worldRenderer.render(state.paused ? 0 : simDt);
   renderHud2D(hudCtx, state);
 
   requestAnimationFrame(frame);
@@ -933,7 +971,8 @@ if (typeof window !== 'undefined') {
   window.__SOLARIS_RENDERER = worldRenderer;
   window.__SOLARIS_ACTIONS = {
     startNewGame: () => resetToNewGame(true),
-    continueCareer: () => continueSavedCareer()
+    continueCareer: () => continueSavedCareer(),
+    sleepToHour: (hour) => sleepToHour(state, hour)
   };
 }
 requestAnimationFrame(frame);

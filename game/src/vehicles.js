@@ -8,7 +8,10 @@ import {
   getGroundHeightAt
 } from './city-map.js';
 import { closeShopModal } from './shops-economy.js';
-import { handleVehiclePedestrianContacts } from './pedestrians.js';
+import { createPedestrian, handleVehiclePedestrianContacts } from './pedestrians.js';
+import { addCrimeHeat } from './police-wanted.js';
+import { triggerExplosion } from './combat-weapons.js';
+import { damagePlayer, ensureCareerStats } from './player-vitals.js';
 
 let nextVehicleId = 1;
 
@@ -71,6 +74,11 @@ export function createVehicle(typeId, x, y, angle = 0, overrides = {}) {
     targetX: x,
     targetY: y,
     sirenPhase: Math.random() * 10,
+    onFire: false,
+    fireTimer: 0,
+    smokeTimer: 0,
+    fireAlarmCooldown: 0,
+    officersDeployed: 0,
     destroyed: false,
     ...overrides
   };
@@ -314,7 +322,10 @@ export function updateVehicles(state, dt) {
     const isPlayer = player.vehicle === v;
     if (isPlayer) {
       updatePlayerDrivenVehicle(state, v, input, dt);
-    } else if (v.isPolice && v.aiRole === 'police_pursuit') {
+      if (v.speed > 1 && !state.startScreenOpen && !state.outcome) {
+        ensureCareerStats(state).distanceDrivenMeters += v.speed * dt * 0.25;
+      }
+    } else if (v.isPolice && (v.aiRole === 'police_pursuit' || v.aiRole === 'police_patrol')) {
       // Velocity was set by updatePoliceSystem; advance via shared substepped collision below
     } else if (v.aiRole === 'traffic' && v.driver === 'civilian') {
       updateTrafficVehicleAI(v, vehicles, player, cityMap, dt);
@@ -399,7 +410,7 @@ export function updateVehicles(state, dt) {
       v.suspVel += Math.min(14, maxWallImpact * 0.06);
       if (isPlayer) {
         state.camera.trauma = Math.min(1, state.camera.trauma + Math.min(0.45, maxWallImpact / 360));
-        v.hp = Math.max(15, v.hp - maxWallImpact * 0.045);
+        v.hp = Math.max(1, v.hp - maxWallImpact * 0.045);
       }
       if (state.particles) {
         const sparkX = v.x - wallHitNx * (v.length * 0.35);
@@ -434,6 +445,112 @@ export function updateVehicles(state, dt) {
     const springF = -95 * (v.suspBounce || 0) - 13 * (v.suspVel || 0);
     v.suspVel = (v.suspVel || 0) + springF * dt;
     v.suspBounce = Math.max(-1.6, Math.min(1.6, (v.suspBounce || 0) + v.suspVel * dt));
+
+    // Progressive Vehicle Damage Stages: Smoke (<35%) -> Fire (<16% + 3.2s bailout) -> Explosion
+    const hpRatio = v.hp / (v.maxHp || 280);
+    if (hpRatio >= 0.16 && v.onFire) {
+      v.onFire = false;
+      v.fireTimer = 0;
+    }
+    const hoodX = v.x + Math.cos(v.angle) * ((v.length || 50) * 0.34);
+    const hoodY = v.y + Math.sin(v.angle) * ((v.length || 50) * 0.34);
+    const hoodZ = (v.z || 0) + (v.height || 14) * 0.62;
+
+    if (hpRatio < 0.35 && hpRatio >= 0.16) {
+      v.smokeTimer = (v.smokeTimer || 0) - dt;
+      if (v.smokeTimer <= 0 && state.particles) {
+        v.smokeTimer = 0.085;
+        state.particles.push({
+          x: hoodX + (Math.random() - 0.5) * 5,
+          y: hoodY + (Math.random() - 0.5) * 5,
+          z: hoodZ,
+          vx: (Math.random() - 0.5) * 14,
+          vy: (Math.random() - 0.5) * 14,
+          vz: 24 + Math.random() * 14,
+          size: 4.8,
+          color: '#6b7280',
+          life: 0.72,
+          maxLife: 0.72,
+          kind: 'smoke'
+        });
+      }
+    } else if (hpRatio < 0.16 && !state.isShowcaseShot) {
+      if (!v.onFire) {
+        v.onFire = true;
+        v.fireTimer = 3.2;
+        v.fireAlarmCooldown = 0;
+        if (v.driver && v.driver !== 'player' && state.pedestrians) {
+          const bailAng = v.angle - Math.PI * 0.5;
+          const bx = v.x + Math.cos(bailAng) * ((v.width || 24) * 0.5 + 13);
+          const by = v.y + Math.sin(bailAng) * ((v.width || 24) * 0.5 + 13);
+          const npc = createPedestrian(bx, by, v.isPolice ? 'police' : 'civilian', {
+            angle: bailAng,
+            panicTimer: 6.0,
+            shoveTimer: 0.35,
+            vx: Math.cos(bailAng) * 85,
+            vy: Math.sin(bailAng) * 85
+          });
+          resolveCircleBuildingCollisions(npc, 9, colliders);
+          state.pedestrians.push(npc);
+          v.aiRole = 'parked';
+          v.driver = null;
+        }
+      }
+
+      v.fireTimer = Math.max(0, (v.fireTimer ?? 3.2) - dt);
+
+      if (state.particles) {
+        state.particles.push({
+          x: hoodX + (Math.random() - 0.5) * 6,
+          y: hoodY + (Math.random() - 0.5) * 6,
+          z: hoodZ + 1.5,
+          vx: (Math.random() - 0.5) * 18,
+          vy: (Math.random() - 0.5) * 18,
+          vz: 34 + Math.random() * 20,
+          size: 4.2,
+          color: Math.random() < 0.55 ? '#f27c2c' : '#f5be54',
+          life: 0.28,
+          maxLife: 0.28,
+          kind: 'fireball'
+        });
+        state.particles.push({
+          x: hoodX + (Math.random() - 0.5) * 8,
+          y: hoodY + (Math.random() - 0.5) * 8,
+          z: hoodZ + 5.5,
+          vx: (Math.random() - 0.5) * 20,
+          vy: (Math.random() - 0.5) * 20,
+          vz: 42 + Math.random() * 18,
+          size: 6.2,
+          color: '#2d3138',
+          life: 0.65,
+          maxLife: 0.65,
+          kind: 'smoke_heavy'
+        });
+      }
+
+      if (isPlayer) {
+        v.fireAlarmCooldown = (v.fireAlarmCooldown || 0) - dt;
+        if (v.fireAlarmCooldown <= 0) {
+          v.fireAlarmCooldown = 0.45;
+          if (state.audio && state.audio.playFireAlarmTick) {
+            state.audio.playFireAlarmTick();
+          }
+        }
+      }
+
+      if (v.fireTimer <= 0) {
+        const playerInside = player.vehicle === v;
+        v.hp = 0;
+        v.destroyed = true;
+        v.onFire = false;
+        v.color = '#1e293b';
+        v.stripeColor = '#334155';
+        if (playerInside) {
+          damagePlayer(state, 115, 'explosion');
+        }
+        triggerExplosion(state, v.x, v.y, 8, 120, 260, { skipPlayerBlast: playerInside });
+      }
+    }
   }
 
   // Exact multi-pass OBB-to-OBB Vehicle collision resolution (zero overlapping/stacking or building tunneling)
@@ -562,7 +679,8 @@ export function updateVehicles(state, dt) {
 
 function updatePlayerDrivenVehicle(state, v, input, dt) {
   const modalOpen = Boolean(
-    state.startScreenOpen ||
+    state.outcome ||
+      state.startScreenOpen ||
       (state.shopModal && state.shopModal.open) ||
       state.safehouseModalOpen ||
       (state.nightlife &&
@@ -945,6 +1063,14 @@ export function tryToggleVehicle(state) {
     v.nitroActive = false;
     v.drifting = false;
     v.braking = false;
+    if (
+      player.reloadTimer > 0 &&
+      player.reloadingWeaponId !== 'pistol' &&
+      player.reloadingWeaponId !== 'smg'
+    ) {
+      player.reloadTimer = 0;
+      player.reloadingWeaponId = null;
+    }
     if (state.audio && state.audio.onVehicleExit) {
       state.audio.onVehicleExit(v);
     }
@@ -953,6 +1079,53 @@ export function tryToggleVehicle(state) {
 
   const target = findNearestHijackableVehicle(player, vehicles, 82);
   if (target) {
+    const hadAiDriver =
+      (target.driver && target.driver !== 'player') ||
+      target.aiRole === 'traffic' ||
+      target.aiRole === 'police_pursuit' ||
+      target.aiRole === 'police_patrol' ||
+      target.aiRole === 'police_roadblock' ||
+      target.aiRole === 'convoy';
+
+    if (hadAiDriver && state.pedestrians) {
+      const colliders = (cityMap && (cityMap.colliders || cityMap.buildings)) || [];
+      const doorAng = target.angle - Math.PI * 0.5;
+      const distOut = (target.width || 24) * 0.5 + 14;
+      const ex = target.x + Math.cos(doorAng) * distOut;
+      const ey = target.y + Math.sin(doorAng) * distOut;
+      const driverRole = target.isPolice
+        ? 'police'
+        : target.driver === 'syndicate'
+          ? 'syndicate'
+          : 'civilian';
+      const pulledNpc = createPedestrian(ex, ey, driverRole, {
+        angle: doorAng,
+        shoveTimer: 0.45,
+        panicTimer: 5.5,
+        vx: Math.cos(doorAng) * 95,
+        vy: Math.sin(doorAng) * 95,
+        vz: 18
+      });
+      resolveCircleBuildingCollisions(pulledNpc, 9, colliders);
+      if (cityMap && cityMap.propColliders) {
+        resolveCircleProps(pulledNpc, 9, 0, cityMap.propColliders);
+      }
+      state.pedestrians.push(pulledNpc);
+      if (state.audio && state.audio.playNpcGrunt) {
+        state.audio.playNpcGrunt(pulledNpc.voicePitch, pulledNpc.x, pulledNpc.y);
+      }
+      addCrimeHeat(
+        state,
+        target.isPolice ? 85 : 28,
+        target.isPolice ? 'VCPD CRUISER HIJACKED' : 'GRAND THEFT AUTO REPORTED'
+      );
+    }
+
+    if (target.aiRole !== 'player_starter' && target.aiRole !== 'player_stolen') {
+      ensureCareerStats(state).carsStolen += 1;
+      target.aiRole = 'player_stolen';
+    }
+
     player.vehicle = target;
     player.x = target.x;
     player.y = target.y;
@@ -962,6 +1135,14 @@ export function tryToggleVehicle(state) {
     player.angle = target.angle;
     target.driver = 'player';
     target.isCurbParked = false;
+    if (
+      player.reloadTimer > 0 &&
+      player.reloadingWeaponId !== 'pistol' &&
+      player.reloadingWeaponId !== 'smg'
+    ) {
+      player.reloadTimer = 0;
+      player.reloadingWeaponId = null;
+    }
     if (state.camera) {
       state.camera.orbitIdleTimer = 2.0;
     }

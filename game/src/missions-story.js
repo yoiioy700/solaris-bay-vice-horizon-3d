@@ -145,6 +145,20 @@ export function updateMissionSystem(state, dt) {
 
   updateMissionGpsRoute(state);
 
+  if (state.customWaypoint) {
+    const wpDist = Math.hypot(player.x - state.customWaypoint.x, player.y - state.customWaypoint.y);
+    if (wpDist < 42) {
+      state.customWaypoint = null;
+      state.customWaypointGps = [];
+      state.hudBanner = {
+        title: 'GPS WAYPOINT REACHED',
+        subtitle: 'CUSTOM MAP PIN CLEARED',
+        color: '#64bcc9',
+        timer: 2.2
+      };
+    }
+  }
+
   const dist = Math.hypot(player.x - active.targetX, player.y - active.targetY);
 
   // Check completion condition
@@ -186,15 +200,7 @@ export function completeActiveMission(state) {
   startMissionByIndex(state, nextIdx);
 }
 
-export function updateMissionGpsRoute(state) {
-  const { player, missions, cityMap } = state;
-  const active = missions.activeMission;
-  if (!active) {
-    missions.gpsPoints = [];
-    return;
-  }
-
-  // Snap to nearest vertical/horizontal road intersection for Manhattan L-route
+function computeManhattanRoutePoints(player, targetX, targetY, cityMap) {
   let nearestRoadX = cityMap.verticalRoads[0];
   let bestDx = Infinity;
   for (const rx of cityMap.verticalRoads) {
@@ -208,18 +214,39 @@ export function updateMissionGpsRoute(state) {
   let targetRoadY = cityMap.horizontalRoads[0];
   let bestDy = Infinity;
   for (const ry of cityMap.horizontalRoads) {
-    const d = Math.abs(active.targetY - ry);
+    const d = Math.abs(targetY - ry);
     if (d < bestDy) {
       bestDy = d;
       targetRoadY = ry;
     }
   }
 
-  missions.gpsPoints = [
+  return [
     { x: player.x, y: player.y },
     { x: nearestRoadX, y: player.y },
     { x: nearestRoadX, y: targetRoadY },
-    { x: active.targetX, y: targetRoadY },
-    { x: active.targetX, y: active.targetY }
+    { x: targetX, y: targetRoadY },
+    { x: targetX, y: targetY }
   ];
+}
+
+export function updateMissionGpsRoute(state) {
+  const { player, missions, cityMap } = state;
+  const active = missions.activeMission;
+  if (!active) {
+    missions.gpsPoints = [];
+  } else {
+    missions.gpsPoints = computeManhattanRoutePoints(player, active.targetX, active.targetY, cityMap);
+  }
+
+  if (state.customWaypoint) {
+    state.customWaypointGps = computeManhattanRoutePoints(
+      player,
+      state.customWaypoint.x,
+      state.customWaypoint.y,
+      cityMap
+    );
+  } else {
+    state.customWaypointGps = [];
+  }
 }

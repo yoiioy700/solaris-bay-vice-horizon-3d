@@ -814,6 +814,8 @@ export function purchaseShopItem(state, itemIndex) {
     const nearCar = findTargetVehicleForGarage(state, shop) || state.vehicles[0];
     if (nearCar && !nearCar.destroyed) {
       nearCar.hp = nearCar.maxHp;
+      nearCar.onFire = false;
+      nearCar.fireTimer = 0;
     }
   }
   if (item.refillNitro) {
@@ -856,12 +858,20 @@ export function purchaseShopItem(state, itemIndex) {
   }
   if (item.repairRespray && garageVehicle) {
     garageVehicle.hp = garageVehicle.maxHp;
+    garageVehicle.onFire = false;
+    garageVehicle.fireTimer = 0;
     const palette = ['#246b7f', '#a6283b', '#ad5937', '#b6ad9d', '#44685e', '#384556'];
     const choices = palette.filter((c) => c !== garageVehicle.color);
     garageVehicle.color = choices[Math.floor(Math.random() * choices.length)] || palette[0];
     wanted.stars = 0;
     wanted.heat = 0;
     wanted.cooldownTimer = 0;
+    wanted.bustMeter = 0;
+    wanted.inSight = false;
+    wanted.evading = false;
+    wanted.evadeTimer = 0;
+    wanted.roadblocks = [];
+    wanted.roadblockDeployed = false;
     wanted.helicopter.active = false;
     if (particles) {
       for (let k = 0; k < 14; k++) {

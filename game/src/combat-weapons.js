@@ -16,6 +16,13 @@ import {
   getActiveWalkInShopAt
 } from './shops-economy.js';
 import { isInsideClubEclipse } from './nightlife-romance.js';
+import {
+  damagePlayer,
+  triggerPlayerOutcome,
+  updatePlayerOutcome
+} from './player-vitals.js';
+
+export { damagePlayer, triggerPlayerOutcome, updatePlayerOutcome };
 
 function lerpAngle(a, b, t) {
   let diff = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
@@ -52,6 +59,7 @@ export function computeDesiredCameraPose(state) {
   if (player.vehicle) {
     const v = player.vehicle;
     const spd = v.speed || 0;
+    const preset = cam.vehCamPreset !== undefined ? cam.vehCamPreset : 1;
     let distBack = 92 + Math.min(28, spd * 0.065);
     let anchorUp = 19.5;
     let fov = 58 + Math.min(14, (spd / 420) * 14) + (v.nitroActive ? 4 : 0);
@@ -66,6 +74,38 @@ export function computeDesiredCameraPose(state) {
       distBack = 64;
       anchorUp = 17.5;
       indoorMode = 'club';
+    } else if (preset === 0) {
+      // CLOSE
+      distBack = 68 + Math.min(18, spd * 0.045);
+      anchorUp = 17.5;
+      fov = 56 + Math.min(12, (spd / 420) * 12) + (v.nitroActive ? 4 : 0);
+    } else if (preset === 2) {
+      // FAR
+      distBack = 128 + Math.min(34, spd * 0.08);
+      anchorUp = 24.5;
+      fov = 62 + Math.min(14, (spd / 420) * 14) + (v.nitroActive ? 4 : 0);
+    } else if (preset === 3) {
+      // HOOD CAM
+      const hoodX = player.x + Math.cos(v.angle) * ((v.length || 50) * 0.16);
+      const hoodY = player.y + Math.sin(v.angle) * ((v.length || 50) * 0.16);
+      const hoodZ = (player.z || 0) + (v.height || 14) * 0.92;
+      return {
+        eyeX: hoodX,
+        eyeY: hoodY,
+        eyeZ: hoodZ,
+        lookX: hoodX + dirX * 220,
+        lookY: hoodY + dirY * 220,
+        lookZ: hoodZ + dirZ * 220,
+        dirX,
+        dirY,
+        dirZ,
+        pivX: hoodX,
+        pivY: hoodY,
+        pivZ: hoodZ,
+        actualDist: 0,
+        fov: 66 + (v.nitroActive ? 4 : 0),
+        indoorMode: 'outdoor'
+      };
     }
 
     const pivX = player.x;
@@ -267,12 +307,28 @@ export function completeWeaponReload(state) {
   return loaded > 0;
 }
 
+export function getDriveByWeapon(player) {
+  const cur = WEAPONS[player.weaponIndex] || WEAPONS[1];
+  if (cur.id === 'pistol' || cur.id === 'smg') {
+    const m = player.weaponMag?.[cur.id] ?? 0;
+    const r = player.weaponAmmo?.[cur.id] ?? 0;
+    if (m + r > 0) return cur;
+  }
+  const pistol = WEAPONS[1];
+  const smg = WEAPONS[2];
+  const pm = (player.weaponMag?.[pistol.id] ?? 0) + (player.weaponAmmo?.[pistol.id] ?? 0);
+  const sm = (player.weaponMag?.[smg.id] ?? 0) + (player.weaponAmmo?.[smg.id] ?? 0);
+  if (pm > 0) return pistol;
+  if (sm > 0) return smg;
+  return cur.id === 'smg' ? smg : pistol;
+}
+
 export function startWeaponReload(state) {
   const { player } = state;
   if (
     state.paused ||
     state.startScreenOpen ||
-    player.vehicle ||
+    state.outcome ||
     (state.shopModal && state.shopModal.open) ||
     state.safehouseModalOpen ||
     (state.nightlife &&
@@ -281,7 +337,9 @@ export function startWeaponReload(state) {
     return false;
   }
 
-  const weapon = WEAPONS[player.weaponIndex] || WEAPONS[1];
+  const weapon = player.vehicle
+    ? getDriveByWeapon(player)
+    : WEAPONS[player.weaponIndex] || WEAPONS[1];
   if (!weapon || weapon.isMelee || !weapon.magSize) return false;
   if ((player.reloadTimer || 0) > 0) return false;
 
@@ -378,7 +436,21 @@ export function performMeleePunch(state) {
     bestNpc.vy = sinA * (isHeavy ? 135 : 92);
     bestNpc.vz = isHeavy ? 30 : 18;
 
-    damagePedestrian(state, bestNpc, damage, cosA * 115, sinA * 115);
+    damagePedestrian(state, bestNpc, damage, cosA * 115, sinA * 115, { isMelee: true });
+
+    if (
+      !bestNpc.dead &&
+      bestNpc.brave &&
+      !bestNpc.isVendor &&
+      !bestNpc.isSeated &&
+      !bestNpc.isDancer &&
+      !bestNpc.isCompanion &&
+      !bestNpc.hostile
+    ) {
+      bestNpc.fightBackTimer = 14.0;
+      bestNpc.panicTimer = 0;
+      bestNpc.meleeCooldown = 0.45;
+    }
 
     if (state.audio && state.audio.playMeleeHit) {
       state.audio.playMeleeHit(isHeavy, bestNpc.x, bestNpc.y);
@@ -485,20 +557,25 @@ export function updatePlayerOnFoot(state, dt) {
     cam.hitMarkerTimer = Math.max(0, (cam.hitMarkerTimer || 0) - dt);
     cam.damageFlash = Math.max(0, (cam.damageFlash || 0) - 2.4 * dt);
     cam.explosionFlash = Math.max(0, (cam.explosionFlash || 0) - 3.2 * dt);
+    cam.vehCamLabelTimer = Math.max(0, (cam.vehCamLabelTimer || 0) - dt);
     const targetAim = cam.aiming && !player.vehicle && (player.reloadTimer || 0) <= 0 ? 1 : 0;
     cam.aimBlend = (cam.aimBlend || 0) + (targetAim - (cam.aimBlend || 0)) * Math.min(1, 14 * dt);
   }
 
-  if (player.vehicle) {
-    if ((player.reloadTimer || 0) > 0) {
-      player.reloadTimer = 0;
-      player.reloadingWeaponId = null;
+  if ((player.reloadTimer || 0) > 0) {
+    player.reloadTimer = Math.max(0, player.reloadTimer - dt);
+    if (player.reloadTimer <= 0) {
+      completeWeaponReload(state);
     }
+  }
+
+  if (player.vehicle) {
     return;
   }
 
   const modalOpen = Boolean(
-    (state.shopModal && state.shopModal.open) ||
+    state.outcome ||
+      (state.shopModal && state.shopModal.open) ||
       state.safehouseModalOpen ||
       (state.nightlife &&
         (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen || state.nightlife.session))
@@ -516,13 +593,6 @@ export function updatePlayerOnFoot(state, dt) {
       player.grounded = true;
     }
     return;
-  }
-
-  if ((player.reloadTimer || 0) > 0) {
-    player.reloadTimer = Math.max(0, player.reloadTimer - dt);
-    if (player.reloadTimer <= 0) {
-      completeWeaponReload(state);
-    }
   }
 
   // Camera-relative WASD axes
@@ -717,6 +787,7 @@ export function firePlayerWeapon(state) {
   if (
     state.paused ||
     state.startScreenOpen ||
+    state.outcome ||
     (state.shopModal && state.shopModal.open) ||
     state.safehouseModalOpen ||
     (state.nightlife &&
@@ -725,7 +796,9 @@ export function firePlayerWeapon(state) {
     return false;
   }
 
-  const weapon = WEAPONS[player.weaponIndex] || WEAPONS[1];
+  const weapon = player.vehicle
+    ? getDriveByWeapon(player)
+    : WEAPONS[player.weaponIndex] || WEAPONS[1];
   if (weapon.isMelee) {
     if (player.vehicle) return false;
     return performMeleePunch(state);
@@ -745,15 +818,9 @@ export function firePlayerWeapon(state) {
   const reserve = player.weaponAmmo[weapon.id] ?? 0;
 
   if (curMag <= 0) {
-    if (reserve > 0 && !player.vehicle) {
+    if (reserve > 0) {
       startWeaponReload(state);
       return false;
-    }
-    if (reserve > 0 && player.vehicle) {
-      // Drive-by quick chamber from reserve if inside vehicle
-      const load = Math.min(weapon.magSize, reserve);
-      player.weaponMag[weapon.id] = load;
-      player.weaponAmmo[weapon.id] = reserve - load;
     } else {
       player.fireCooldown = 0.35;
       state.hudBanner = {
@@ -788,7 +855,7 @@ export function firePlayerWeapon(state) {
     player.angle = camYaw;
   }
 
-  const aimAngle = Number.isFinite(player.angle) ? player.angle : -Math.PI * 0.5;
+  const aimAngle = player.vehicle ? camYaw : Number.isFinite(player.angle) ? player.angle : -Math.PI * 0.5;
   const cosA = Math.cos(aimAngle);
   const sinA = Math.sin(aimAngle);
   let ox;
@@ -796,9 +863,12 @@ export function firePlayerWeapon(state) {
   let oz;
 
   if (player.vehicle) {
-    ox = player.x + cosA * 26;
-    oy = player.y + sinA * 26;
-    oz = (player.z || 0) + 11.5;
+    const v = player.vehicle;
+    const drvSideAng = v.angle - Math.PI * 0.5;
+    ox = player.x + Math.cos(v.angle) * 4 + Math.cos(drvSideAng) * ((v.width || 24) * 0.48);
+    oy = player.y + Math.sin(v.angle) * 4 + Math.sin(drvSideAng) * ((v.width || 24) * 0.48);
+    oz = (player.z || 0) + (v.height || 14) * 0.66;
+    player.muzzleWorldPos = { x: ox, y: oy, z: oz };
   } else if (player.muzzleWorldPos) {
     ox = player.muzzleWorldPos.x;
     oy = player.muzzleWorldPos.y;
@@ -873,13 +943,13 @@ export function firePlayerWeapon(state) {
   if (state.audio) state.audio.playShot(weapon.id, ox, oy);
 
   // Auto-reload cleanly when magazine empties and reserve ammo remains
-  if (player.weaponMag[weapon.id] <= 0 && (player.weaponAmmo[weapon.id] || 0) > 0 && !player.vehicle) {
+  if (player.weaponMag[weapon.id] <= 0 && (player.weaponAmmo[weapon.id] || 0) > 0) {
     startWeaponReload(state);
   }
   return true;
 }
 
-export function triggerExplosion(state, x, y, z = 8, radius = 115, maxDamage = 260) {
+export function triggerExplosion(state, x, y, z = 8, radius = 115, maxDamage = 260, opts = {}) {
   const { particles, vehicles, pedestrians, player } = state;
 
   // Layered wispy warm-amber fireball core nestled inside dark charcoal smoke plumes
@@ -1027,9 +1097,13 @@ export function triggerExplosion(state, x, y, z = 8, radius = 115, maxDamage = 2
       v.vy += Math.sin(pushAng) * 180 * factor;
       if (v.hp <= 0 && !v.destroyed) {
         v.destroyed = true;
+        v.onFire = false;
         v.color = '#1e293b';
         v.stripeColor = '#334155';
         if (player.vehicle === v) {
+          if (!opts.skipPlayerBlast) {
+            damagePlayer(state, 115, 'explosion');
+          }
           player.vehicle = null;
           v.driver = null;
           player.x = v.x + 28;
@@ -1059,6 +1133,9 @@ export function triggerExplosion(state, x, y, z = 8, radius = 115, maxDamage = 2
     player.vy += Math.sin(pAng) * 140 * f;
     player.vz = Math.max(player.vz || 0, 48 * f);
     player.grounded = false;
+    if (!opts.skipPlayerBlast) {
+      damagePlayer(state, Math.round(maxDamage * 0.45 * f), 'explosion');
+    }
   }
   if (playerDist < 520) {
     state.camera.trauma = Math.min(1, state.camera.trauma + 0.68 * (1 - playerDist / 520));
@@ -1097,7 +1174,14 @@ export function updateCombatAndProjectiles(state, dt) {
     }
   }
 
-  if (input.mouseDown && !(state.shopModal && state.shopModal.open) && !state.safehouseModalOpen) {
+  if (
+    input.mouseDown &&
+    !state.paused &&
+    !state.startScreenOpen &&
+    !state.outcome &&
+    !(state.shopModal && state.shopModal.open) &&
+    !state.safehouseModalOpen
+  ) {
     firePlayerWeapon(state);
   }
 
@@ -1262,19 +1346,18 @@ export function updateCombatAndProjectiles(state, dt) {
         }
       }
     } else {
-      // Enemy projectile hitting player or player vehicle (blocked during locked private nightlife sessions)
-      const inPrivateSession = Boolean(state.nightlife && state.nightlife.session);
-      if (!inPrivateSession && Math.hypot(player.x - proj.x, player.y - proj.y) < 18 && Math.abs(proj.z - (player.z || 0) - 9) < 12) {
+      // Enemy projectile hitting player or player vehicle (blocked during outcome or locked private nightlife sessions)
+      const inProtected = Boolean(state.outcome) || Boolean(state.nightlife && state.nightlife.session);
+      if (!inProtected && Math.hypot(player.x - proj.x, player.y - proj.y) < 18 && Math.abs(proj.z - (player.z || 0) - 9) < 12) {
         if (player.vehicle) {
-          player.vehicle.hp = Math.max(25, player.vehicle.hp - proj.damage * 0.5);
-        } else if (player.armor > 0) {
-          player.armor = Math.max(0, player.armor - proj.damage);
+          const minHp = player.vehicle.onFire ? 0 : 1;
+          player.vehicle.hp = Math.max(minHp, player.vehicle.hp - proj.damage * 0.5);
+          if (state.camera) {
+            state.camera.damageFlash = 0.48;
+            state.camera.trauma = Math.min(1, state.camera.trauma + 0.14);
+          }
         } else {
-          player.hp = Math.max(15, player.hp - proj.damage);
-        }
-        if (state.camera) {
-          state.camera.damageFlash = 0.65;
-          state.camera.trauma = Math.min(1, state.camera.trauma + 0.18);
+          damagePlayer(state, proj.damage, 'gunfire');
         }
         hitSomething = true;
       }

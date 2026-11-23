@@ -303,6 +303,18 @@ export function buildVehicleModel3D(veh, lib) {
   tailBar.position.set(-halfL - 0.12, H * 0.42, 0);
   bodyGroup.add(tailBar);
 
+  // Translucent ground headlight cone beam (lights up smoothly when nightFactor > 0.25)
+  let headlightBeam = null;
+  if (lib.headlightBeamMaterial) {
+    const beamGeo = new THREE.PlaneGeometry(78, W * 1.9);
+    beamGeo.rotateX(-Math.PI * 0.5);
+    headlightBeam = new THREE.Mesh(beamGeo, lib.headlightBeamMaterial);
+    headlightBeam.position.set(halfL + 38, 0.34, 0);
+    headlightBeam.visible = false;
+    headlightBeam.renderOrder = 3;
+    root.add(headlightBeam);
+  }
+
   // 8. Twin 3D Nitro Exhaust Flame Plumes (soft translucent warm-amber to blue exhaust jet)
   const nitroGroup = new THREE.Group();
   const nitroFlameMat = new THREE.ShaderMaterial({
@@ -470,6 +482,7 @@ export function buildVehicleModel3D(veh, lib) {
     paintMeshes,
     wheels,
     nitroGroup,
+    headlightBeam,
     steamyGlow,
     sirenLight,
     sirenRedPod,

@@ -9,7 +9,8 @@ import {
   ISLAND_Y1,
   ISLAND_Y2,
   CAUSEWAY_YS,
-  WEAPONS
+  WEAPONS,
+  getWorldClockInfo
 } from './config.js';
 import { pointInBuilding, getGroundHeightAt, raycastColliders3D } from './city-map.js';
 import { computeDesiredCameraPose } from './combat-weapons.js';
@@ -39,11 +40,184 @@ import { CLUB_ECLIPSE_BOUNDS } from './nightlife-romance.js';
 // Keeps sky glow, volumetric clouds, and directional shadows 100% physically aligned.
 const SUN_DIR = new THREE.Vector3(0.56, 0.52, -0.64).normalize();
 
+const DAY_KEYFRAMES = [
+  {
+    hour: 0.0,
+    zenith: 0x070d1a,
+    upperMid: 0x0e1a30,
+    lowerMid: 0x1a2842,
+    horizon: 0x26354d,
+    sunColor: 0x9bb8e0,
+    sunDir: [-0.35, 0.45, 0.72],
+    sunIntensity: 0.52,
+    sunLightColor: 0x7da4d4,
+    hemiSky: 0x284068,
+    hemiGround: 0x181c24,
+    hemiIntensity: 0.46,
+    bounceIntensity: 0.2,
+    fogColor: 0x162030,
+    fogDensity: 0.00038,
+    envIntensity: 0.24,
+    nightFactor: 1.0
+  },
+  {
+    hour: 5.0,
+    zenith: 0x14223d,
+    upperMid: 0x2a3b5c,
+    lowerMid: 0x694f68,
+    horizon: 0x9a6d6c,
+    sunColor: 0xf4b688,
+    sunDir: [-0.72, 0.24, -0.65],
+    sunIntensity: 0.75,
+    sunLightColor: 0xe8a882,
+    hemiSky: 0x4b5f84,
+    hemiGround: 0x2a2528,
+    hemiIntensity: 0.56,
+    bounceIntensity: 0.26,
+    fogColor: 0x524c58,
+    fogDensity: 0.00036,
+    envIntensity: 0.30,
+    nightFactor: 0.65
+  },
+  {
+    hour: 7.0,
+    zenith: 0x245588,
+    upperMid: 0x5485b4,
+    lowerMid: 0xc29c8e,
+    horizon: 0xe8c79d,
+    sunColor: 0xffe2bc,
+    sunDir: [-0.62, 0.38, -0.52],
+    sunIntensity: 1.75,
+    sunLightColor: 0xffd5a6,
+    hemiSky: 0x90badc,
+    hemiGround: 0x564e44,
+    hemiIntensity: 0.82,
+    bounceIntensity: 0.36,
+    fogColor: 0xc0b4a8,
+    fogDensity: 0.00033,
+    envIntensity: 0.48,
+    nightFactor: 0.0
+  },
+  {
+    hour: 12.5,
+    zenith: 0x1f5c99,
+    upperMid: 0x5696cc,
+    lowerMid: 0x9cc4df,
+    horizon: 0xd8e4ea,
+    sunColor: 0xfff6e5,
+    sunDir: [0.18, 0.88, -0.44],
+    sunIntensity: 2.55,
+    sunLightColor: 0xfff2dc,
+    hemiSky: 0xb0d8f2,
+    hemiGround: 0x6a645a,
+    hemiIntensity: 1.05,
+    bounceIntensity: 0.46,
+    fogColor: 0xc8d4dc,
+    fogDensity: 0.00028,
+    envIntensity: 0.62,
+    nightFactor: 0.0
+  },
+  {
+    hour: 17.2,
+    zenith: 0x265482,
+    upperMid: 0x5682ad,
+    lowerMid: 0xc49c91,
+    horizon: 0xe7cca2,
+    sunColor: 0xffebd0,
+    sunDir: [0.56, 0.52, -0.64],
+    sunIntensity: 2.35,
+    sunLightColor: 0xffe0b5,
+    hemiSky: 0x9ec5e8,
+    hemiGround: 0x62554a,
+    hemiIntensity: 0.92,
+    bounceIntensity: 0.42,
+    fogColor: 0xc4c0ba,
+    fogDensity: 0.00032,
+    envIntensity: 0.54,
+    nightFactor: 0.0
+  },
+  {
+    hour: 19.2,
+    zenith: 0x16294b,
+    upperMid: 0x35496e,
+    lowerMid: 0x9b6672,
+    horizon: 0xc9856c,
+    sunColor: 0xffb380,
+    sunDir: [0.76, 0.20, -0.62],
+    sunIntensity: 0.92,
+    sunLightColor: 0xf29f6d,
+    hemiSky: 0x54688e,
+    hemiGround: 0x362d2c,
+    hemiIntensity: 0.60,
+    bounceIntensity: 0.28,
+    fogColor: 0x6a5b64,
+    fogDensity: 0.00036,
+    envIntensity: 0.34,
+    nightFactor: 0.55
+  },
+  {
+    hour: 20.8,
+    zenith: 0x070d1a,
+    upperMid: 0x0e1a30,
+    lowerMid: 0x1a2842,
+    horizon: 0x26354d,
+    sunColor: 0x9bb8e0,
+    sunDir: [-0.35, 0.45, 0.72],
+    sunIntensity: 0.52,
+    sunLightColor: 0x7da4d4,
+    hemiSky: 0x284068,
+    hemiGround: 0x181c24,
+    hemiIntensity: 0.46,
+    bounceIntensity: 0.2,
+    fogColor: 0x162030,
+    fogDensity: 0.00038,
+    envIntensity: 0.24,
+    nightFactor: 1.0
+  },
+  {
+    hour: 24.0,
+    zenith: 0x070d1a,
+    upperMid: 0x0e1a30,
+    lowerMid: 0x1a2842,
+    horizon: 0x26354d,
+    sunColor: 0x9bb8e0,
+    sunDir: [-0.35, 0.45, 0.72],
+    sunIntensity: 0.52,
+    sunLightColor: 0x7da4d4,
+    hemiSky: 0x284068,
+    hemiGround: 0x181c24,
+    hemiIntensity: 0.46,
+    bounceIntensity: 0.2,
+    fogColor: 0x162030,
+    fogDensity: 0.00038,
+    envIntensity: 0.24,
+    nightFactor: 1.0
+  }
+];
+
+const _kfColorA = new THREE.Color();
+const _kfColorB = new THREE.Color();
+const _activeSunDir = SUN_DIR.clone();
+
+function sampleDayCycle(worldTime) {
+  const h = ((Number.isFinite(worldTime) ? worldTime : 17.2) % 24 + 24) % 24;
+  let a = DAY_KEYFRAMES[0];
+  let b = DAY_KEYFRAMES[DAY_KEYFRAMES.length - 1];
+  for (let i = 0; i < DAY_KEYFRAMES.length - 1; i++) {
+    if (h >= DAY_KEYFRAMES[i].hour && h <= DAY_KEYFRAMES[i + 1].hour) {
+      a = DAY_KEYFRAMES[i];
+      b = DAY_KEYFRAMES[i + 1];
+      break;
+    }
+  }
+  const span = Math.max(0.001, b.hour - a.hour);
+  const t = Math.max(0, Math.min(1, (h - a.hour) / span));
+  return { a, b, t };
+}
+
 /**
- * Scenic Miami / Vice Coast Golden-Hour Sky Dome Shader:
- * Deep coastal azure zenith -> soft sky blue -> dusty peach-rose -> creamy warm-gold mist,
- * layered with procedural 4-octave fBM backlit clouds (warm golden undersides + slate-blue upper shadows)
- * and a soft diffused solar halo that never clips into harsh glare.
+ * Scenic Miami / Vice Coast Dynamic 24h Sky Dome Shader:
+ * Supports Golden-Hour sunset, midday azure, dawn/dusk warmth, and starry Midnight Neon sky.
  */
 function createGoldenHourSkyDome() {
   const skyGeo = new THREE.SphereGeometry(4200, 44, 24);
@@ -58,7 +232,8 @@ function createGoldenHourSkyDome() {
       uHorizonColor: { value: new THREE.Color(0xe7cca2) },
       uSunColor: { value: new THREE.Color(0xffebd0) },
       uSunDir: { value: SUN_DIR.clone() },
-      uTime: { value: 0 }
+      uTime: { value: 0 },
+      uNightFactor: { value: 0 }
     },
     vertexShader: `
       varying vec3 vWorldOffset;
@@ -75,6 +250,7 @@ function createGoldenHourSkyDome() {
       uniform vec3 uSunColor;
       uniform vec3 uSunDir;
       uniform float uTime;
+      uniform float uNightFactor;
       varying vec3 vWorldOffset;
 
       float hash21(vec2 p) {
@@ -110,21 +286,36 @@ function createGoldenHourSkyDome() {
         vec3 dir = normalize(vWorldOffset);
         float h = clamp(dir.y, 0.0, 1.0);
 
-        // Smooth 4-stop Miami golden-hour atmospheric sky gradient
+        // Smooth 4-stop Miami atmospheric sky gradient
         vec3 col = mix(uHorizonColor, uLowerMidColor, smoothstep(0.0, 0.14, h));
         col = mix(col, uUpperMidColor, smoothstep(0.11, 0.34, h));
         col = mix(col, uZenithColor, smoothstep(0.30, 0.82, h));
 
         // Subtle muted mist below horizon line
         if (dir.y < 0.0) {
-          col = mix(uHorizonColor, vec3(0.55, 0.60, 0.64), smoothstep(0.0, -0.18, dir.y));
+          vec3 subMist = mix(vec3(0.55, 0.60, 0.64), vec3(0.08, 0.11, 0.18), uNightFactor);
+          col = mix(uHorizonColor, subMist, smoothstep(0.0, -0.18, dir.y));
         }
 
-        // Gentle diffused Mie atmospheric sun glow & soft solar halo (no harsh pure-white clip)
+        // Gentle diffused Mie atmospheric sun/moon glow & soft halo
         float sunAmt = max(dot(dir, uSunDir), 0.0);
-        col += uHorizonColor * pow(sunAmt, 4.0) * 0.16;
-        col += uSunColor * pow(sunAmt, 28.0) * 0.24;
-        col += uSunColor * smoothstep(0.9968, 0.9994, sunAmt) * 0.42;
+        col += uHorizonColor * pow(sunAmt, 4.0) * mix(0.16, 0.07, uNightFactor);
+        col += uSunColor * pow(sunAmt, 28.0) * mix(0.24, 0.12, uNightFactor);
+        col += uSunColor * smoothstep(0.9968, 0.9994, sunAmt) * mix(0.42, 0.25, uNightFactor);
+
+        // Subtle twinkling night stars in upper hemisphere
+        if (uNightFactor > 0.02 && dir.y > 0.05) {
+          vec2 starUv = dir.xz / (dir.y + 0.35) * 95.0;
+          vec2 cell = floor(starUv);
+          vec2 f = fract(starUv) - 0.5;
+          float rnd = hash21(cell);
+          if (rnd > 0.972) {
+            float d = length(f);
+            float twinkle = 0.65 + 0.35 * sin(uTime * (2.5 + rnd * 4.0) + rnd * 40.0);
+            float star = smoothstep(0.22, 0.02, d) * twinkle * smoothstep(0.05, 0.28, dir.y);
+            col += vec3(0.86, 0.92, 1.0) * star * uNightFactor * 0.95;
+          }
+        }
 
         // Procedural multi-octave fBM backlit coastal cumulus clouds on curved sky dome
         if (dir.y > 0.025) {
@@ -134,18 +325,17 @@ function createGoldenHourSkyDome() {
           float combined = baseN * 0.68 + detailN * 0.32;
           float density = smoothstep(0.47, 0.67, combined);
 
-          // Sample slightly toward sun direction for sunlit warm-gold underside & cool slate-blue upper shadow
-          vec2 sunStep = normalize(uSunDir.xz) * 0.14;
+          vec2 sunStep = normalize(uSunDir.xz + vec2(0.0001)) * 0.14;
           float towardSun = fbm(cloudUv + sunStep);
           float lightFactor = clamp(0.42 + (baseN - towardSun) * 3.6 + pow(sunAmt, 2.5) * 0.38, 0.0, 1.0);
 
-          vec3 cloudShadow = vec3(0.39, 0.50, 0.66);
-          vec3 cloudLit = mix(vec3(0.95, 0.87, 0.78), vec3(1.0, 0.89, 0.73), pow(sunAmt, 1.8));
+          vec3 cloudShadow = mix(vec3(0.39, 0.50, 0.66), vec3(0.06, 0.09, 0.16), uNightFactor);
+          vec3 dayCloudLit = mix(vec3(0.95, 0.87, 0.78), vec3(1.0, 0.89, 0.73), pow(sunAmt, 1.8));
+          vec3 cloudLit = mix(dayCloudLit, vec3(0.16, 0.22, 0.34), uNightFactor);
           vec3 cloudCol = mix(cloudShadow, cloudLit, lightFactor);
 
-          // Fade clouds smoothly near the horizon mist and overhead zenith
           float horizonFade = smoothstep(0.03, 0.18, dir.y) * smoothstep(0.95, 0.45, dir.y);
-          col = mix(col, cloudCol, density * horizonFade * 0.78);
+          col = mix(col, cloudCol, density * horizonFade * mix(0.78, 0.56, uNightFactor));
         }
 
         gl_FragColor = vec4(col, 1.0);
@@ -499,12 +689,14 @@ export function createWorldRenderer3D(canvas, state) {
     }
   }
 
-  // Sleek Coastal Avenue Streetlamps with Warm Amber Luminaires & Grounded AO Shadow
+  // Sleek Coastal Avenue Streetlamps with Warm Amber Luminaires, Night Glow Cones & Grounded AO Shadow
   const poleGeo = new THREE.CylinderGeometry(0.38, 0.58, 22, 8);
   const armGeo = new THREE.BoxGeometry(6.2, 0.45, 0.45);
   const bulbGeo = new THREE.BoxGeometry(2.2, 0.65, 1.25);
   const poleAoGeo = new THREE.PlaneGeometry(6.5, 6.5);
   poleAoGeo.rotateX(-Math.PI * 0.5);
+  const lampConeGeo = new THREE.ConeGeometry(13.5, 21.5, 12, 1, true);
+  const streetlampGlowEntries = [];
   for (const sl of cityMap.streetlights) {
     const slGroup = new THREE.Group();
     slGroup.position.set(sl.x, 0, sl.y);
@@ -525,6 +717,12 @@ export function createWorldRenderer3D(canvas, state) {
     const bulb = new THREE.Mesh(bulbGeo, lib.warmLampMaterial);
     bulb.position.set(5.2, 21.45, 0);
     slGroup.add(bulb);
+
+    const glowCone = new THREE.Mesh(lampConeGeo, lib.streetlampGlowMaterial);
+    glowCone.position.set(5.2, 10.6, 0);
+    glowCone.visible = false;
+    slGroup.add(glowCone);
+    streetlampGlowEntries.push({ x: sl.x, y: sl.y, cone: glowCone });
 
     cityGroup.add(slGroup);
     if (sl.collider && sl.collider.breakable) {
@@ -610,9 +808,14 @@ export function createWorldRenderer3D(canvas, state) {
   playerMesh.userData.outfitVersion = state.player.outfitVersion || 0;
   scene.add(playerMesh);
 
-  // Dynamic Muzzle Flash PointLight
+  // Dynamic Muzzle Flash PointLight & Player Night Headlight SpotLight
   const muzzleLight = new THREE.PointLight(0xffcb78, 0, 56);
   scene.add(muzzleLight);
+
+  const playerHeadlightSpot = new THREE.SpotLight(0xfff0cc, 0, 260, Math.PI * 0.24, 0.55, 1.2);
+  playerHeadlightSpot.castShadow = false;
+  scene.add(playerHeadlightSpot);
+  scene.add(playerHeadlightSpot.target);
 
   const helicopterMesh = buildHelicopterModel3D(lib);
   helicopterMesh.visible = false;
@@ -775,10 +978,90 @@ export function createWorldRenderer3D(canvas, state) {
     }
   }
 
+  let cullScale = 1.0;
+
+  function applySettings(settings) {
+    if (!settings) return;
+    if (state.isShowcaseShot) {
+      renderer.setPixelRatio(1);
+      sunLight.castShadow = true;
+      renderer.shadowMap.enabled = true;
+      cullScale = 1.0;
+      return;
+    }
+    const q = settings.quality || 'HIGH';
+    if (q === 'LOW') {
+      renderer.setPixelRatio(0.85);
+      cullScale = 0.56;
+    } else if (q === 'MEDIUM') {
+      renderer.setPixelRatio(1);
+      cullScale = 0.78;
+    } else {
+      renderer.setPixelRatio(Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 1.5));
+      cullScale = 1.0;
+    }
+    const shadowsOn = settings.shadows !== false;
+    sunLight.castShadow = shadowsOn;
+    renderer.shadowMap.enabled = shadowsOn;
+    renderer.shadowMap.needsUpdate = true;
+  }
+
   function render(dt = 0.016) {
     const { player, vehicles, pedestrians, wanted, missions, projectiles, particles, pickups } =
       state;
     const time = state.time || 0;
+
+    // 24-Hour Day / Sunset / Night Cycle interpolation (locks at 17.2 golden hour for showcase)
+    const activeWorldTime = state.isShowcaseShot ? 17.2 : typeof state.worldTime === 'number' ? state.worldTime : 17.2;
+    const clock = getWorldClockInfo(activeWorldTime);
+    const { a: kfA, b: kfB, t: kfT } = sampleDayCycle(activeWorldTime);
+    const lerpNum = (x, y) => x + (y - x) * kfT;
+
+    const u = skyDome.material.uniforms;
+    u.uZenithColor.value.copy(_kfColorA.setHex(kfA.zenith)).lerp(_kfColorB.setHex(kfB.zenith), kfT);
+    u.uUpperMidColor.value.copy(_kfColorA.setHex(kfA.upperMid)).lerp(_kfColorB.setHex(kfB.upperMid), kfT);
+    u.uLowerMidColor.value.copy(_kfColorA.setHex(kfA.lowerMid)).lerp(_kfColorB.setHex(kfB.lowerMid), kfT);
+    u.uHorizonColor.value.copy(_kfColorA.setHex(kfA.horizon)).lerp(_kfColorB.setHex(kfB.horizon), kfT);
+    u.uSunColor.value.copy(_kfColorA.setHex(kfA.sunColor)).lerp(_kfColorB.setHex(kfB.sunColor), kfT);
+    _activeSunDir
+      .set(
+        lerpNum(kfA.sunDir[0], kfB.sunDir[0]),
+        lerpNum(kfA.sunDir[1], kfB.sunDir[1]),
+        lerpNum(kfA.sunDir[2], kfB.sunDir[2])
+      )
+      .normalize();
+    u.uSunDir.value.copy(_activeSunDir);
+
+    const nightFactor = lerpNum(kfA.nightFactor, kfB.nightFactor);
+    u.uNightFactor.value = nightFactor;
+    state.nightFactor = nightFactor;
+
+    sunLight.color.copy(_kfColorA.setHex(kfA.sunLightColor)).lerp(_kfColorB.setHex(kfB.sunLightColor), kfT);
+    sunLight.intensity = lerpNum(kfA.sunIntensity, kfB.sunIntensity);
+    hemiLight.color.copy(_kfColorA.setHex(kfA.hemiSky)).lerp(_kfColorB.setHex(kfB.hemiSky), kfT);
+    hemiLight.groundColor.copy(_kfColorA.setHex(kfA.hemiGround)).lerp(_kfColorB.setHex(kfB.hemiGround), kfT);
+    hemiLight.intensity = lerpNum(kfA.hemiIntensity, kfB.hemiIntensity);
+    bounceRimLight.intensity = lerpNum(kfA.bounceIntensity, kfB.bounceIntensity);
+    bounceRimLight.position.set(-_activeSunDir.x * 200, 140, -_activeSunDir.z * 200);
+
+    scene.fog.color.copy(_kfColorA.setHex(kfA.fogColor)).lerp(_kfColorB.setHex(kfB.fogColor), kfT);
+    scene.fog.density = lerpNum(kfA.fogDensity, kfB.fogDensity);
+    scene.background.copy(scene.fog.color);
+    if ('environmentIntensity' in scene) {
+      scene.environmentIntensity = lerpNum(kfA.envIntensity, kfB.envIntensity);
+    }
+
+    const nightLightsBlend = nightFactor > 0.25 ? (nightFactor - 0.25) / 0.75 : 0;
+    lib.headlightMaterial.emissiveIntensity = 1.15 + nightLightsBlend * 1.65;
+    lib.taillightMaterial.emissiveIntensity = 1.35 + nightLightsBlend * 1.15;
+    lib.warmLampMaterial.emissiveIntensity = 0.82 + nightLightsBlend * 1.85;
+    lib.headlightBeamMaterial.opacity = nightLightsBlend * 0.24;
+    lib.streetlampGlowMaterial.opacity = nightLightsBlend * 0.14;
+    if (lib.buildingMaterials) {
+      for (const bm of lib.buildingMaterials) {
+        bm.emissiveIntensity = 0.17 + nightLightsBlend * 0.36;
+      }
+    }
 
     // Animate ocean wave UVs, shoreline foam & sky clouds gently
     lib.oceanTex.offset.x = (time * 0.018) % 1;
@@ -851,10 +1134,21 @@ export function createWorldRenderer3D(canvas, state) {
     const cullRefX = state.camera.overridePose ? state.camera.overridePose.look[0] : player.x;
     const cullRefY = state.camera.overridePose ? state.camera.overridePose.look[2] : player.y;
 
+    const cullSqScale = cullScale * cullScale;
     for (const item of cullableStatics) {
       const dx = item.x - cullRefX;
       const dy = item.y - cullRefY;
-      item.obj.visible = dx * dx + dy * dy <= item.maxDistSq;
+      item.obj.visible = dx * dx + dy * dy <= item.maxDistSq * cullSqScale;
+    }
+
+    for (const entry of streetlampGlowEntries) {
+      if (nightLightsBlend <= 0.01) {
+        entry.cone.visible = false;
+      } else {
+        const dx = entry.x - cullRefX;
+        const dy = entry.y - cullRefY;
+        entry.cone.visible = dx * dx + dy * dy <= 620 * 620 * cullSqScale;
+      }
     }
 
     // Sync Knocked / Breakable Street Props (hydrants, lamps, benches, umbrellas)
@@ -941,9 +1235,26 @@ export function createWorldRenderer3D(canvas, state) {
         mesh.userData.sirenLight.color.setHex(isRedHalf ? 0xd43542 : 0x3b8fd4);
         mesh.userData.sirenLight.intensity = wanted.stars > 0 ? 7.5 : 2.5;
       }
+      if (mesh.userData.headlightBeam) {
+        mesh.userData.headlightBeam.visible = Boolean(nightLightsBlend > 0.02 && !v.destroyed);
+      }
     }
     for (const [id, mesh] of vehicleMeshes.entries()) {
       if (!activeVehIds.has(id)) mesh.visible = false;
+    }
+
+    // Player Vehicle Night Headlight SpotLight
+    if (player.vehicle && !player.vehicle.destroyed && nightLightsBlend > 0.02) {
+      const pv = player.vehicle;
+      const fCos = Math.cos(pv.angle);
+      const fSin = Math.sin(pv.angle);
+      const frontDist = (pv.length || 50) * 0.48;
+      playerHeadlightSpot.position.set(pv.x + fCos * frontDist, (pv.z || 0) + 5.5, pv.y + fSin * frontDist);
+      playerHeadlightSpot.target.position.set(pv.x + fCos * 125, 0.2, pv.y + fSin * 125);
+      playerHeadlightSpot.target.updateMatrixWorld();
+      playerHeadlightSpot.intensity = nightLightsBlend * 34;
+    } else {
+      playerHeadlightSpot.intensity = 0;
     }
 
     // Sync 3D Player Character, Jump Pose, Squash, Weapon Aim Pitch, Muzzle World Pos & Boutique Outfits
@@ -955,7 +1266,16 @@ export function createWorldRenderer3D(canvas, state) {
     }
     if (player.vehicle) {
       playerMesh.visible = false;
-      muzzleLight.intensity = 0;
+      if (player.muzzleTimer > 0 && player.muzzleWorldPos) {
+        muzzleLight.position.set(
+          player.muzzleWorldPos.x,
+          player.muzzleWorldPos.z,
+          player.muzzleWorldPos.y
+        );
+        muzzleLight.intensity = 5.5;
+      } else {
+        muzzleLight.intensity = 0;
+      }
     } else {
       playerMesh.visible = true;
       const onBoardwalk = player.x >= COAST_X - 32 && player.x <= COAST_X - 4;
@@ -1241,18 +1561,25 @@ export function createWorldRenderer3D(canvas, state) {
           mesh.userData.torsoGroup.rotation.z = 0.22;
           mesh.userData.leftArmPivot.rotation.z = 1.5;
           mesh.userData.rightArmPivot.rotation.z = npc.hostile ? Math.PI * 0.5 + 0.12 : 1.5;
+        } else if ((npc.punchTimer || 0) > 0) {
+          const pNorm = 1 - Math.max(0, Math.min(1, npc.punchTimer / 0.28));
+          const thrust = Math.sin(pNorm * Math.PI);
+          mesh.userData.torsoGroup.rotation.z = 0;
+          mesh.userData.leftArmPivot.rotation.z = 0.9;
+          mesh.userData.rightArmPivot.rotation.z = 0.9 + thrust * 1.15;
         } else {
           mesh.userData.torsoGroup.rotation.z = 0;
           mesh.userData.leftArmPivot.rotation.z = npc.panicTimer > 0 ? 2.4 : -swing * 0.55;
-          mesh.userData.rightArmPivot.rotation.z = npc.hostile
-            ? Math.PI * 0.5
-            : npc.panicTimer > 0
-              ? 2.2
-              : swing * 0.55;
+          mesh.userData.rightArmPivot.rotation.z =
+            npc.hostile && (npc.role !== 'police' || wanted.stars > 0)
+              ? Math.PI * 0.5
+              : npc.panicTimer > 0
+                ? 2.2
+                : swing * 0.55;
         }
         mesh.userData.headGroup.rotation.y = 0;
       }
-      if (npc.hasWeapon) {
+      if (npc.hasWeapon && (npc.role !== 'police' || wanted.stars > 0 || (npc.muzzleTimer || 0) > 0)) {
         syncCharacterWeaponVisual(mesh, npc.weaponId || (npc.role === 'syndicate' ? 'smg' : 'pistol'));
       } else {
         syncCharacterWeaponVisual(mesh, 'fists');
@@ -1295,13 +1622,17 @@ export function createWorldRenderer3D(canvas, state) {
       missionBeaconGroup.visible = false;
     }
 
-    // Place subtle asphalt-flush GPS road chevrons ahead of the player
+    // Place subtle asphalt-flush GPS road chevrons ahead of the player (prioritizing custom map waypoint)
     for (const c of gpsChevrons) c.visible = false;
-    if (missions.gpsPoints && missions.gpsPoints.length >= 2) {
+    const activeGpsPts =
+      state.customWaypointGps && state.customWaypointGps.length >= 2
+        ? state.customWaypointGps
+        : missions.gpsPoints;
+    if (activeGpsPts && activeGpsPts.length >= 2) {
       let cIdx = 0;
-      for (let s = 0; s < missions.gpsPoints.length - 1 && cIdx < gpsChevrons.length; s++) {
-        const pA = missions.gpsPoints[s];
-        const pB = missions.gpsPoints[s + 1];
+      for (let s = 0; s < activeGpsPts.length - 1 && cIdx < gpsChevrons.length; s++) {
+        const pA = activeGpsPts[s];
+        const pB = activeGpsPts[s + 1];
         const segLen = Math.hypot(pB.x - pA.x, pB.y - pA.y);
         if (segLen < 24) continue;
         const ang = Math.atan2(pB.y - pA.y, pB.x - pA.x);
@@ -1470,7 +1801,7 @@ export function createWorldRenderer3D(canvas, state) {
       m.rotation.y = (pk.phase || 0) * 1.2;
     }
 
-    // Update 3D Over-the-Shoulder TPS Camera, Driving Orbit Camera, Start-Screen Orbit, Indoor Camera, or Showcase Pose
+    // Update 3D Over-the-Shoulder TPS Camera, Driving Orbit Camera, Outcome Slow-Mo Orbit, Start-Screen Orbit, Indoor Camera, or Showcase Pose
     const activePose = state.camera.overridePose || state.camera.nightlifePose;
     if (activePose) {
       const pose = activePose;
@@ -1487,7 +1818,30 @@ export function createWorldRenderer3D(canvas, state) {
       state.camera.indoorMode = state.camera.nightlifePose ? 'nightlife' : 'showcase';
       state.camera.currentEye = { x: pose.eye[0], y: pose.eye[2], z: pose.eye[1] };
       state.camera.currentLook = { x: pose.look[0], y: pose.look[2], z: pose.look[1] };
-    } else if (state.startScreenOpen) {
+    } else if (state.outcome) {
+      const p = 1 - Math.max(0, state.outcome.timer / (state.outcome.duration || 3.4));
+      const orbAng = (state.outcome.startYaw || player.angle || 0) + Math.PI + p * 0.95;
+      const rad = 54 + p * 28;
+      const colliders = cityMap.colliders || cityMap.buildings;
+      const dirX = Math.cos(orbAng);
+      const dirY = Math.sin(orbAng);
+      let actualRad = rad;
+      const hitWall = raycastColliders3D(player.x, player.y, 18, dirX, dirY, 0.3, rad + 4, colliders, 3.0);
+      if (hitWall) actualRad = Math.max(18, hitWall.t - 3.0);
+      const eyeX = player.x + dirX * actualRad;
+      const eyeY = player.y + dirY * actualRad;
+      const eyeZ = (player.z || 0) + 26 + p * 38;
+
+      camera.position.set(eyeX, eyeZ, eyeY);
+      camera.lookAt(player.x, (player.z || 0) + 10, player.y);
+      camera.fov = 54;
+      camera.updateProjectionMatrix();
+
+      state.camera.indoorMode = 'outcome';
+      state.camera.currentEye = { x: eyeX, y: eyeY, z: eyeZ };
+      state.camera.currentLook = { x: player.x, y: player.y, z: (player.z || 0) + 10 };
+      shadowFocus.set(player.x, 0, player.y);
+    } else if (state.startScreenOpen || state.pauseOpenedFromTitle) {
       const orbitAng = time * 0.24 - Math.PI * 0.32;
       const dirX = Math.cos(orbitAng);
       const dirY = Math.sin(orbitAng);
@@ -1556,16 +1910,16 @@ export function createWorldRenderer3D(canvas, state) {
       shadowFocus.set(player.x + pose.dirX * 36, 0, player.y + pose.dirY * 36);
     }
 
-    // Center Sky Dome on Camera & Align High-Density Sun Shadow Frustum with Exact SUN_DIR
+    // Center Sky Dome on Camera & Align High-Density Sun Shadow Frustum with Active Sun Direction
     skyDome.position.copy(camera.position);
     const texelSize = (shadowHalf * 2) / 2048;
     const snappedX = Math.round(shadowFocus.x / texelSize) * texelSize;
     const snappedZ = Math.round(shadowFocus.z / texelSize) * texelSize;
     sunLight.target.position.set(snappedX, 0, snappedZ);
     sunLight.position.set(
-      snappedX + SUN_DIR.x * 340,
-      SUN_DIR.y * 340,
-      snappedZ + SUN_DIR.z * 340
+      snappedX + _activeSunDir.x * 340,
+      _activeSunDir.y * 340,
+      snappedZ + _activeSunDir.z * 340
     );
     sunLight.target.updateMatrixWorld();
 
@@ -1636,7 +1990,9 @@ export function createWorldRenderer3D(canvas, state) {
         triangles: renderer.info.render.triangles,
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures,
-        shadowMap: renderer.shadowMap.enabled
+        shadowMap: renderer.shadowMap.enabled,
+        worldTime: activeWorldTime,
+        nightFactor: clock.nightFactor
       };
     }
   }
@@ -1647,6 +2003,7 @@ export function createWorldRenderer3D(canvas, state) {
     camera,
     playerMesh,
     lib,
+    applySettings,
     render
   };
 }
