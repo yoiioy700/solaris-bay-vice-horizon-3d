@@ -7,6 +7,7 @@ import {
   findTargetVehicleForGarage
 } from './shops-economy.js';
 import { CLUB_ECLIPSE_BOUNDS, getNightlifeMenuLayout } from './nightlife-romance.js';
+import { getSavedCareerSummary } from './audio-save.js';
 
 const GLASS_BG = 'rgba(12, 17, 25, 0.78)';
 const GLASS_BG_STRONG = 'rgba(12, 17, 25, 0.86)';
@@ -60,11 +61,38 @@ function drawFrostedGlassPanel(
   ctx.restore();
 }
 
+export function getStartScreenLayout() {
+  const w = 560;
+  const h = 420;
+  const x = Math.round((1280 - w) * 0.5);
+  const y = 142;
+  return {
+    x,
+    y,
+    w,
+    h,
+    newGameRect: { x: x + 28, y: y + 132, w: 244, h: 58 },
+    continueRect: { x: x + 288, y: y + 132, w: 244, h: 58 }
+  };
+}
+
 export function renderHud2D(ctx, state) {
   ctx.clearRect(0, 0, 1280, 720);
 
+  if (state.startScreenOpen) {
+    renderStartTitleScreen(ctx, state);
+    renderBottomControlStrip(ctx);
+    return;
+  }
+
+  // 0. Damage & Explosion Vignette Flashes
+  renderDamageAndBlastOverlay(ctx, state);
+
   // 1. Diegetic 3D World-Space Screen Markers
   renderDiegeticWorldMarkers(ctx, state);
+
+  // 1B. Dynamic Over-the-Shoulder Crosshair & Hit Marker (on foot)
+  renderDynamicCrosshair(ctx, state);
 
   // 2. Top-Left Slim Floating Mission Pill
   renderTopLeftMissionPill(ctx, state);
@@ -105,6 +133,120 @@ export function renderHud2D(ctx, state) {
 
   // 9. Slim Bottom-Edge Control Legend Bar
   renderBottomControlStrip(ctx);
+}
+
+function renderDamageAndBlastOverlay(ctx, state) {
+  const cam = state.camera;
+  if (!cam) return;
+  if ((cam.damageFlash || 0) > 0.01) {
+    ctx.save();
+    const vig = ctx.createRadialGradient(640, 360, 260, 640, 360, 740);
+    vig.addColorStop(0, 'rgba(180, 24, 38, 0)');
+    vig.addColorStop(1, `rgba(195, 28, 42, ${Math.min(0.45, cam.damageFlash * 0.55)})`);
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, 1280, 720);
+    ctx.restore();
+  }
+  if ((cam.explosionFlash || 0) > 0.01) {
+    ctx.save();
+    const vig = ctx.createRadialGradient(640, 360, 240, 640, 360, 740);
+    vig.addColorStop(0, 'rgba(255, 200, 110, 0)');
+    vig.addColorStop(1, `rgba(255, 195, 110, ${Math.min(0.28, cam.explosionFlash * 0.35)})`);
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, 1280, 720);
+    ctx.restore();
+  }
+}
+
+function renderDynamicCrosshair(ctx, state) {
+  const { player, camera: cam } = state;
+  if (!cam || player.vehicle) return;
+
+  const modalOpen = Boolean(
+    (state.shopModal && state.shopModal.open) ||
+      state.safehouseModalOpen ||
+      (state.nightlife &&
+        (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen || state.nightlife.session || state.nightlife.dancing))
+  );
+  if (modalOpen) return;
+  if (cam.overridePose && !cam.showShowcaseCrosshair) return;
+
+  const weapon = WEAPONS[player.weaponIndex] || WEAPONS[0];
+  const speed = Math.hypot(player.vx || 0, player.vy || 0);
+  const aimBlend = cam.aimBlend || 0;
+  const baseGap = (8.5 - aimBlend * 4.2) + Math.min(9.5, speed * 0.055) + (weapon.spread || 0.02) * 85 + (player.spreadBloom || 0) * 115;
+  const gap = Math.max(4, Math.min(26, baseGap));
+  const tickLen = aimBlend > 0.5 ? 6.5 : 7.5;
+
+  const cx = 640;
+  const cy = 360;
+  const targetType = cam.aimTargetType;
+  const mainCol =
+    targetType === 'npc'
+      ? '#ff5a66'
+      : targetType === 'vehicle'
+        ? '#e8bc6b'
+        : 'rgba(244, 248, 252, 0.94)';
+
+  ctx.save();
+  ctx.lineCap = 'round';
+
+  // Crisp subtle dark halo behind ticks for daylight/sky readability
+  ctx.strokeStyle = 'rgba(10, 14, 20, 0.65)';
+  ctx.lineWidth = 3.4;
+  ctx.beginPath();
+  ctx.moveTo(cx - gap - tickLen, cy);
+  ctx.lineTo(cx - gap, cy);
+  ctx.moveTo(cx + gap, cy);
+  ctx.lineTo(cx + gap + tickLen, cy);
+  ctx.moveTo(cx, cy - gap - tickLen);
+  ctx.lineTo(cx, cy - gap);
+  ctx.moveTo(cx, cy + gap);
+  ctx.lineTo(cx, cy + gap + tickLen);
+  ctx.stroke();
+
+  // Foreground dynamic crosshair ticks
+  ctx.strokeStyle = mainCol;
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(cx - gap - tickLen, cy);
+  ctx.lineTo(cx - gap, cy);
+  ctx.moveTo(cx + gap, cy);
+  ctx.lineTo(cx + gap + tickLen, cy);
+  ctx.moveTo(cx, cy - gap - tickLen);
+  ctx.lineTo(cx, cy - gap);
+  ctx.moveTo(cx, cy + gap);
+  ctx.lineTo(cx, cy + gap + tickLen);
+  ctx.stroke();
+
+  // Center precision dot
+  ctx.fillStyle = mainCol;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Brief Hit Marker 'X' when bullets connect
+  if ((cam.hitMarkerTimer || 0) > 0) {
+    const hmAlpha = Math.min(1, cam.hitMarkerTimer / 0.14);
+    ctx.strokeStyle = cam.hitMarkerCrit
+      ? `rgba(255, 86, 102, ${hmAlpha})`
+      : `rgba(245, 224, 168, ${hmAlpha})`;
+    ctx.lineWidth = 2.2;
+    const inner = 5;
+    const outer = 12;
+    ctx.beginPath();
+    ctx.moveTo(cx - outer, cy - outer);
+    ctx.lineTo(cx - inner, cy - inner);
+    ctx.moveTo(cx + outer, cy - outer);
+    ctx.lineTo(cx + inner, cy - inner);
+    ctx.moveTo(cx - outer, cy + outer);
+    ctx.lineTo(cx - inner, cy + inner);
+    ctx.moveTo(cx + outer, cy + outer);
+    ctx.lineTo(cx + inner, cy + inner);
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 function renderDiegeticWorldMarkers(ctx, state) {
@@ -427,8 +569,13 @@ function renderBottomLeftRadar(ctx, state) {
   ctx.fillStyle = '#121924';
   ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
-  // Rotate radar relative to player heading
-  const heading = player.vehicle ? player.vehicle.angle : player.angle;
+  // Rotate radar relative to player / camera heading
+  const heading =
+    state.camera && typeof state.camera.yaw === 'number' && !state.camera.overridePose
+      ? state.camera.yaw
+      : player.vehicle
+        ? player.vehicle.angle
+        : player.angle;
   ctx.translate(cx, cy);
   ctx.rotate(-heading - Math.PI * 0.5);
 
@@ -618,19 +765,8 @@ function renderBottomRightTelemetry(ctx, state) {
   if (player.vehicle) {
     const v = player.vehicle;
     const mph = Math.round(v.speed * 0.48);
-    const rpmRatio = Math.min(1, v.speed / v.maxSpeed);
-    const gear =
-      mph < 15
-        ? 'G1'
-        : mph < 55
-          ? 'G2'
-          : mph < 95
-            ? 'G3'
-            : mph < 135
-              ? 'G4'
-              : mph < 175
-                ? 'G5'
-                : 'G6';
+    const rpmRatio = Math.min(1, Math.max(0.08, v.rpm || v.speed / v.maxSpeed));
+    const gear = v.gear === 0 ? 'R' : `G${v.gear || 1}`;
 
     // Sleek Radial Arc Tachometer
     const gx = 1046;
@@ -678,7 +814,8 @@ function renderBottomRightTelemetry(ctx, state) {
     ctx.fillStyle = ACCENT_CYAN;
     ctx.font = '700 10.5px "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('ON-FOOT TACTICAL MODE • 3D AIM', 1014, 601);
+    const isLocked = typeof document !== 'undefined' && document.pointerLockElement !== null;
+    ctx.fillText(isLocked ? 'TACTICAL 3D AIM • [RMB] ADS' : 'ON-FOOT • [CLICK] LOCK 3D AIM', 1014, 601);
 
     for (let i = 0; i < WEAPONS.length; i++) {
       const w = WEAPONS[i];
@@ -700,9 +837,9 @@ function renderBottomRightTelemetry(ctx, state) {
     }
 
     ctx.fillStyle = TEXT_MUTED;
-    ctx.font = '500 10.5px "Segoe UI", sans-serif';
+    ctx.font = '500 10.2px "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('[F] CARJACK NEARBY VEHICLE • [LMB] FIRE', 1014, 673);
+    ctx.fillText('[SPACE] JUMP • [F] CARJACK • [RMB] ADS', 1014, 673);
   }
 }
 
@@ -831,34 +968,184 @@ function renderSafehouseDossierModal(ctx, state) {
     ctx.fillText(m.briefing, x + 36, ry + 41);
   }
 
-  // Bottom Persistence Action Buttons
+  // Bottom Persistence & Reset Action Buttons
   drawFrostedGlassPanel(
     ctx,
     x + 24,
     y + 502,
-    280,
+    192,
     36,
     6,
     'rgba(99, 199, 146, 0.18)',
     'rgba(99, 199, 146, 0.55)'
   );
   ctx.fillStyle = ACCENT_EMERALD;
-  ctx.font = '700 11.5px "Segoe UI", sans-serif';
+  ctx.font = '700 11px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('[K] SAVE CAREER TO LOCALSTORAGE', x + 164, y + 524);
+  ctx.fillText('[K] SAVE CAREER', x + 120, y + 524);
 
   drawFrostedGlassPanel(
     ctx,
-    x + 324,
+    x + 226,
     y + 502,
-    282,
+    186,
+    36,
+    6,
+    'rgba(224, 178, 104, 0.15)',
+    'rgba(224, 178, 104, 0.50)'
+  );
+  ctx.fillStyle = ACCENT_GOLD;
+  ctx.fillText('[N] NEW GAME RESET', x + 319, y + 524);
+
+  drawFrostedGlassPanel(
+    ctx,
+    x + 422,
+    y + 502,
+    184,
     36,
     6,
     'rgba(100, 188, 201, 0.16)',
     'rgba(100, 188, 201, 0.52)'
   );
   ctx.fillStyle = ACCENT_CYAN;
-  ctx.fillText('[TAB / M] RESUME 3D OPEN WORLD', x + 465, y + 524);
+  ctx.fillText('[TAB / M] RESUME WORLD', x + 514, y + 524);
+}
+
+function renderStartTitleScreen(ctx, state) {
+  const layout = getStartScreenLayout();
+  const { x, y, w, h, newGameRect, continueRect } = layout;
+  const saved = state.hasSavedCareer ? getSavedCareerSummary() : null;
+
+  ctx.save();
+  // Subtle atmospheric scrim over live 3D Ocean Drive backdrop
+  const scrim = ctx.createRadialGradient(640, 360, 160, 640, 360, 760);
+  scrim.addColorStop(0, 'rgba(10, 14, 21, 0.16)');
+  scrim.addColorStop(1, 'rgba(10, 14, 21, 0.58)');
+  ctx.fillStyle = scrim;
+  ctx.fillRect(0, 0, 1280, 720);
+
+  drawFrostedGlassPanel(ctx, x, y, w, h, 12, GLASS_BG_STRONG, 'rgba(224, 178, 104, 0.48)');
+
+  // Warm gold top bar
+  ctx.fillStyle = ACCENT_GOLD;
+  ctx.fillRect(x + 28, y + 20, 58, 3.5);
+
+  ctx.fillStyle = ACCENT_CYAN;
+  ctx.font = '700 10.5px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('THREE.JS WEBGL 2.0 OPEN-WORLD CRIME & DRIVING SANDBOX', x + 28, y + 44);
+
+  ctx.fillStyle = TEXT_PRIMARY;
+  ctx.font = '800 26px "Segoe UI", sans-serif';
+  ctx.fillText('SOLARIS BAY: VICE HORIZON 3D', x + 28, y + 78);
+
+  ctx.fillStyle = TEXT_MUTED;
+  ctx.font = '500 11.5px "Segoe UI", sans-serif';
+  ctx.fillText(
+    '9 Districts • Walk-In 3D Shops • Club Eclipse 21+ • 6-Mission Heist Campaign',
+    x + 28,
+    y + 102
+  );
+
+  // Divider
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
+  ctx.fillRect(x + 28, y + 116, w - 56, 1);
+
+  // Button 1: NEW GAME
+  const hoverNew = state.startScreenHover === 'new';
+  drawFrostedGlassPanel(
+    ctx,
+    newGameRect.x,
+    newGameRect.y,
+    newGameRect.w,
+    newGameRect.h,
+    8,
+    hoverNew ? 'rgba(224, 178, 104, 0.28)' : 'rgba(224, 178, 104, 0.16)',
+    ACCENT_GOLD
+  );
+  ctx.fillStyle = ACCENT_GOLD;
+  ctx.font = '800 14px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('[ENTER] NEW GAME', newGameRect.x + newGameRect.w * 0.5, newGameRect.y + 26);
+  ctx.fillStyle = TEXT_PRIMARY;
+  ctx.font = '500 10.5px "Segoe UI", sans-serif';
+  ctx.fillText(
+    'Fresh Career • $42,500 • Mission 01',
+    newGameRect.x + newGameRect.w * 0.5,
+    newGameRect.y + 44
+  );
+
+  // Button 2: CONTINUE CAREER
+  const hoverCont = state.startScreenHover === 'continue' && Boolean(saved);
+  drawFrostedGlassPanel(
+    ctx,
+    continueRect.x,
+    continueRect.y,
+    continueRect.w,
+    continueRect.h,
+    8,
+    saved
+      ? hoverCont
+        ? 'rgba(99, 199, 146, 0.28)'
+        : 'rgba(99, 199, 146, 0.16)'
+      : 'rgba(255, 255, 255, 0.04)',
+    saved ? ACCENT_EMERALD : GLASS_BORDER
+  );
+  ctx.fillStyle = saved ? ACCENT_EMERALD : TEXT_MUTED;
+  ctx.font = '800 14px "Segoe UI", sans-serif';
+  ctx.fillText('[C] CONTINUE CAREER', continueRect.x + continueRect.w * 0.5, continueRect.y + 26);
+  ctx.fillStyle = saved ? TEXT_PRIMARY : TEXT_MUTED;
+  ctx.font = '500 10.5px "Segoe UI", sans-serif';
+  ctx.fillText(
+    saved
+      ? `$${saved.cash.toLocaleString()} • ${saved.completedCount}/6 Completed`
+      : 'No Saved Career Found',
+    continueRect.x + continueRect.w * 0.5,
+    continueRect.y + 44
+  );
+
+  // Compact Controls Guide Box
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.045)';
+  ctx.fillRect(x + 28, y + 208, w - 56, 184);
+  ctx.strokeStyle = GLASS_BORDER;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 28, y + 208, w - 56, 184);
+
+  ctx.fillStyle = ACCENT_CYAN;
+  ctx.font = '700 10px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('CONTROLS & SANDBOX GUIDE', x + 42, y + 230);
+
+  const leftRows = [
+    ['[CLICK]', 'Lock 3D Aim & Fire Weapon'],
+    ['[RMB HOLD]', 'Over-the-Shoulder ADS Zoom'],
+    ['[WASD]', 'Drive Vehicle / Move On Foot'],
+    ['[SPACE]', 'Jump (On Foot) / Handbrake Drift'],
+    ['[SHIFT]', 'Sprint (On Foot) / Nitro Boost']
+  ];
+  const rightRows = [
+    ['[F / ENTER]', 'Carjack / Exit Vehicle'],
+    ['[E]', 'Walk-In Shops, Bar & VIP Suite'],
+    ['[G] / [H]', 'Dance in Club / Honk Companion'],
+    ['[1-5 / R]', 'Switch Weapons / Radio Station'],
+    ['[K] / [TAB]', 'Save Career / Career Dossier']
+  ];
+
+  ctx.font = '600 10.5px "Segoe UI", sans-serif';
+  for (let i = 0; i < leftRows.length; i++) {
+    const ry = y + 256 + i * 26;
+    ctx.fillStyle = ACCENT_GOLD;
+    ctx.fillText(leftRows[i][0], x + 42, ry);
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.fillText(leftRows[i][1], x + 124, ry);
+
+    ctx.fillStyle = ACCENT_GOLD;
+    ctx.fillText(rightRows[i][0], x + 306, ry);
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.fillText(rightRows[i][1], x + 382, ry);
+  }
+
+  ctx.restore();
 }
 
 function renderShopOverlayDrawer(ctx, state) {
@@ -1161,10 +1448,10 @@ function renderBottomControlStrip(ctx) {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
   ctx.fillRect(0, 698, 1280, 1);
   ctx.fillStyle = '#bcc7d4';
-  ctx.font = '500 10px "Segoe UI", sans-serif';
+  ctx.font = '500 9.8px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(
-    '[WASD] MOVE/DRIVE  [SPACE] DRIFT/RHYTHM  [SHIFT] NITRO/SPRINT  [F] CARJACK  [E] SHOPS/VIP  [G] DANCE  [H] HONK/PICKUP  [CLICK] FIRE  [1-5] WEAPONS/BUY  [K] SAVE  [TAB] DOSSIER',
+    '[CLICK] AIM/FIRE  [RMB] ADS  [SPACE] JUMP/DRIFT  [WASD] MOVE/DRIVE  [SHIFT] NITRO  [F] CARJACK  [E] SHOPS/VIP  [G] DANCE  [H] PICKUP  [1-5] WEAPONS  [R] RADIO  [K] SAVE  [TAB] DOSSIER',
     640,
     713
   );

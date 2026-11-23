@@ -474,7 +474,54 @@ export function createMuzzleStarTexture() {
 }
 
 /**
- * Soft translucent shoreline surf foam band texture.
+ * Twin-edge tire skid-mark smudge texture for drift & hard-brake asphalt ribbons.
+ */
+export function createSkidMarkTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 64, 64);
+
+  const grad = ctx.createLinearGradient(0, 0, 64, 0);
+  grad.addColorStop(0.0, 'rgba(18, 20, 24, 0.0)');
+  grad.addColorStop(0.22, 'rgba(18, 20, 24, 0.85)');
+  grad.addColorStop(0.5, 'rgba(14, 16, 20, 0.92)');
+  grad.addColorStop(0.78, 'rgba(18, 20, 24, 0.85)');
+  grad.addColorStop(1.0, 'rgba(18, 20, 24, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * Radial scorch / bullet impact mark decal texture.
+ */
+export function createImpactMarkTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 64, 64);
+
+  const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grad.addColorStop(0.0, 'rgba(16, 18, 22, 0.92)');
+  grad.addColorStop(0.38, 'rgba(28, 30, 34, 0.56)');
+  grad.addColorStop(0.78, 'rgba(40, 42, 46, 0.16)');
+  grad.addColorStop(1.0, 'rgba(40, 42, 46, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * Soft shoreline surf foam band texture.
  */
 export function createShoreFoamTexture() {
   const canvas = document.createElement('canvas');
@@ -1345,6 +1392,8 @@ export function createMaterialLibrary(renderer) {
   const beaconRingTex = createBeaconRingTexture();
   const softPuffTex = createSoftCloudPuffTexture();
   const muzzleStarTex = createMuzzleStarTexture();
+  const skidMarkTex = createSkidMarkTexture();
+  const impactMarkTex = createImpactMarkTexture();
   const awningCoralTex = createAwningTexture('#b55d53', '#d4cbbd');
   const awningTealTex = createAwningTexture('#467c82', '#d4cbbd');
   const awningGoldTex = createAwningTexture('#b88948', '#d8d0c2');
@@ -1531,6 +1580,8 @@ export function createMaterialLibrary(renderer) {
     beaconRingTex,
     softPuffTex,
     muzzleStarTex,
+    skidMarkTex,
+    impactMarkTex,
     getCarPaintMaterial,
     getNeonSignMaterial,
     getShopSignMaterial,
@@ -1857,6 +1908,27 @@ export function createMaterialLibrary(renderer) {
       opacity: 0.48,
       side: THREE.DoubleSide,
       depthWrite: false
+    }),
+    skidMarkMaterial: new THREE.MeshBasicMaterial({
+      map: skidMarkTex,
+      transparent: true,
+      opacity: 0.56,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3
+    }),
+    impactMarkMaterial: new THREE.MeshBasicMaterial({
+      map: impactMarkTex,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4
+    }),
+    debrisMaterial: new THREE.MeshStandardMaterial({
+      color: 0x262930,
+      roughness: 0.78,
+      metalness: 0.35
     })
   };
 }

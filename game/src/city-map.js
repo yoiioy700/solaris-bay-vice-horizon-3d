@@ -21,8 +21,9 @@ import { CLUB_ECLIPSE_BOUNDS } from './nightlife-romance.js';
  * any ground-floor walk-in / drive-in shop interiors carved into its East or West facade.
  */
 function buildCarvedCollidersForBuilding(b, walkInShops) {
+  const bh3D = b.height3D || 120;
   if (!walkInShops || walkInShops.length === 0) {
-    return [{ x: b.x, y: b.y, w: b.w, h: b.h }];
+    return [{ x: b.x, y: b.y, w: b.w, h: b.h, height: bh3D }];
   }
 
   const out = [];
@@ -34,10 +35,10 @@ function buildCarvedCollidersForBuilding(b, walkInShops) {
   // 1. Solid back structural core behind the ground-floor shop bay(s)
   if (opensEast) {
     const backW = Math.max(10, splitX - b.x);
-    out.push({ x: b.x, y: b.y, w: backW, h: b.h });
+    out.push({ x: b.x, y: b.y, w: backW, h: b.h, height: bh3D });
   } else {
     const backW = Math.max(10, b.x + b.w - splitX);
-    out.push({ x: splitX, y: b.y, w: backW, h: b.h });
+    out.push({ x: splitX, y: b.y, w: backW, h: b.h, height: bh3D });
   }
 
   // 2. Solid flanking walls between/around the carved bay(s) along the front strip
@@ -48,17 +49,25 @@ function buildCarvedCollidersForBuilding(b, walkInShops) {
   for (const s of sorted) {
     const ib = s.interior;
     if (ib.y1 > cursorY + 2) {
-      out.push({ x: stripX, y: cursorY, w: stripW, h: ib.y1 - cursorY });
+      out.push({ x: stripX, y: cursorY, w: stripW, h: ib.y1 - cursorY, height: bh3D });
     }
-    // Thin interior counter collider near the back wall for non-garage walk-in stores
+    // Thin interior counter collider near the back wall & glass storefront flanks for non-garage stores
     if (s.kind !== 'garage') {
       const cx = ib.dir > 0 ? ib.x1 + 2 : ib.x2 - 11;
-      out.push({ x: cx, y: ib.y1 + 6, w: 9, h: ib.y2 - ib.y1 - 12 });
+      out.push({ x: cx, y: ib.y1 + 6, w: 9, h: ib.y2 - ib.y1 - 12, height: 8 });
+      const doorHalf = 13.5;
+      const frontX = ib.dir > 0 ? s.x - 1.5 : s.x - 0.5;
+      if (s.y - doorHalf - ib.y1 > 2) {
+        out.push({ x: frontX, y: ib.y1, w: 2, h: s.y - doorHalf - ib.y1, height: ib.ceilingH || 28 });
+      }
+      if (ib.y2 - (s.y + doorHalf) > 2) {
+        out.push({ x: frontX, y: s.y + doorHalf, w: 2, h: ib.y2 - (s.y + doorHalf), height: ib.ceilingH || 28 });
+      }
     }
     cursorY = Math.max(cursorY, ib.y2);
   }
   if (b.y + b.h > cursorY + 2) {
-    out.push({ x: stripX, y: cursorY, w: stripW, h: b.y + b.h - cursorY });
+    out.push({ x: stripX, y: cursorY, w: stripW, h: b.y + b.h - cursorY, height: bh3D });
   }
 
   return out;
@@ -174,12 +183,12 @@ export function createCityMap() {
         // Add only thin perimeter wall colliders on West, North & South — leaving East entrance wide open!
         const c = CLUB_ECLIPSE_BOUNDS;
         colliders.push(
-          { x: c.x1 - 4, y: c.y1 - 4, w: 7, h: c.y2 - c.y1 + 8 }, // West DJ back wall
-          { x: c.x1, y: c.y1 - 4, w: c.x2 - c.x1, h: 7 }, // North VIP back wall
-          { x: c.x1, y: c.y2 - 3, w: c.x2 - c.x1, h: 7 }, // South Bar back wall
+          { x: c.x1 - 4, y: c.y1 - 4, w: 7, h: c.y2 - c.y1 + 8, height: 28 }, // West DJ back wall
+          { x: c.x1, y: c.y1 - 4, w: c.x2 - c.x1, h: 7, height: 28 }, // North VIP back wall
+          { x: c.x1, y: c.y2 - 3, w: c.x2 - c.x1, h: 7, height: 28 }, // South Bar back wall
           // East facade wall segments flanking the grand 66u-wide red-carpet doorway (y = 1663..1729 open!)
-          { x: c.x2 - 3, y: c.y1, w: 6, h: 55 },
-          { x: c.x2 - 3, y: c.y2 - 55, w: 6, h: 55 }
+          { x: c.x2 - 3, y: c.y1, w: 6, h: 55, height: 28 },
+          { x: c.x2 - 3, y: c.y2 - 55, w: 6, h: 55, height: 28 }
         );
         palmTrees.push(
           { x: blockLeft - 6, y: blockTop - 6, scale: 1.05, leanAngle: 0.7 },
@@ -202,8 +211,8 @@ export function createCityMap() {
         });
         // Add crisp colliders around the container stacks so cars don't drive through steel containers
         colliders.push(
-          { x: cx - 54, y: cy - 48, w: 42, h: 96 },
-          { x: cx + 14, y: cy - 48, w: 42, h: 96 }
+          { x: cx - 54, y: cy - 48, w: 42, h: 96, height: 26 },
+          { x: cx + 14, y: cy - 48, w: 42, h: 96, height: 26 }
         );
         continue;
       }
@@ -295,7 +304,7 @@ export function createCityMap() {
             walkInShops: []
           };
           buildings.push(bObj);
-          colliders.push({ x: bObj.x, y: bObj.y, w: bObj.w, h: bObj.h });
+          colliders.push({ x: bObj.x, y: bObj.y, w: bObj.w, h: bObj.h, height: bObj.height3D });
         }
       }
 
@@ -404,7 +413,7 @@ export function createCityMap() {
         walkInShops: []
       };
       buildings.push(villa);
-      colliders.push({ x: villa.x, y: villa.y, w: villa.w, h: villa.h });
+      colliders.push({ x: villa.x, y: villa.y, w: villa.w, h: villa.h, height: villa.height3D });
 
       palmTrees.push(
         { x: bLeft - 4, y: bTop - 4, scale: 1.05, leanAngle: (ix + iy) * 1.1 },
@@ -622,6 +631,72 @@ export function createCityMap() {
     { id: 'yacht_8', x: 3160, y: 3820, angle: -0.18, trimColor: '#b59257' }
   );
 
+  // Build unified solid & breakable world prop colliders (palms, lamps, hydrants, benches, patios, beach props)
+  const propColliders = [];
+  let propColliderId = 1;
+  function isClearForPropCollider(px, py) {
+    if (nearAnyShop(px, py, 19)) return false;
+    if (px >= 1756 && px <= 1828 && py >= 1660 && py <= 1732) return false;
+    for (const rx of verticalRoads) {
+      if (Math.abs(px - rx) < 42) return false;
+    }
+    return true;
+  }
+
+  function registerPropCollider(sourceObj, kind, radius, height, breakable) {
+    if (!isClearForPropCollider(sourceObj.x, sourceObj.y)) return;
+    const pc = {
+      id: `pc_${propColliderId++}`,
+      kind,
+      x: sourceObj.x,
+      y: sourceObj.y,
+      z: sourceObj.z || 0,
+      radius,
+      height,
+      breakable,
+      knocked: false,
+      kx: sourceObj.x,
+      ky: sourceObj.y,
+      kz: sourceObj.z || 0,
+      kvx: 0,
+      kvy: 0,
+      kvz: 0,
+      tilt: 0,
+      tiltAxisAngle: 0,
+      hitCooldown: 0
+    };
+    sourceObj.collider = pc;
+    propColliders.push(pc);
+  }
+
+  for (const t of palmTrees) {
+    registerPropCollider(t, 'palm', 2.7 * (t.scale || 1), 36, false);
+  }
+  for (const sl of streetlights) {
+    registerPropCollider(sl, 'streetlight', 1.7, 22, true);
+  }
+  for (const tl of trafficLights) {
+    registerPropCollider(tl, 'traffic_light', 2.0, 25, false);
+  }
+  for (const p of streetProps) {
+    if (p.kind === 'hydrant') registerPropCollider(p, 'hydrant', 1.8, 4.5, true);
+    else if (p.kind === 'bench') registerPropCollider(p, 'bench', 3.4, 4.5, true);
+    else if (p.kind === 'trashbin') registerPropCollider(p, 'trashbin', 1.8, 4.2, true);
+    else if (p.kind === 'newsbox') registerPropCollider(p, 'newsbox', 2.0, 4.8, true);
+    else if (p.kind === 'bollard') registerPropCollider(p, 'bollard', 1.4, 4.2, true);
+    else if (p.kind === 'planter') registerPropCollider(p, 'planter', 4.2, 4.5, false);
+    else if (p.kind === 'vending') registerPropCollider(p, 'vending', 3.2, 9.5, false);
+    else if (p.kind === 'bus_stop') registerPropCollider(p, 'bus_stop', 5.2, 13.0, false);
+  }
+  for (const cp of cafePatios) {
+    registerPropCollider(cp, 'cafe_patio', 3.4, 12.0, false);
+  }
+  for (const bp of beachProps) {
+    if (bp.kind === 'lifeguard') registerPropCollider(bp, 'lifeguard', 8.2, 22.0, false);
+    else if (bp.kind === 'umbrella') registerPropCollider(bp, 'umbrella', 2.2, 11.5, true);
+    else if (bp.kind === 'surfboards') registerPropCollider(bp, 'surfboards', 2.0, 10.5, true);
+  }
+
   return {
     width: WORLD_WIDTH,
     height: WORLD_HEIGHT,
@@ -636,6 +711,7 @@ export function createCityMap() {
     intersections,
     buildings,
     colliders,
+    propColliders,
     palmTrees,
     streetlights,
     trafficLights,
@@ -741,4 +817,567 @@ export function pointInBuilding(x, y, colliders, padding = 4) {
     }
   }
   return null;
+}
+
+export function resolveWorldBounds(entity, margin = 10) {
+  let hit = false;
+  let nx = 0;
+  let ny = 0;
+  const maxMainlandX = COAST_X + BEACH_WIDTH - 24;
+  const bridgeY = isOnCausewayBridge(entity.y);
+  const inIslandY = entity.y >= ISLAND_Y1 && entity.y <= ISLAND_Y2;
+
+  if (entity.x > maxMainlandX) {
+    if (entity.x >= ISLAND_X1 && entity.x <= ISLAND_X2 && inIslandY) {
+      // Valid on Starfish Island
+    } else if (bridgeY !== null && entity.x <= ISLAND_X1 + 20) {
+      const clampedY = Math.max(bridgeY - 40, Math.min(bridgeY + 40, entity.y));
+      if (clampedY !== entity.y) {
+        ny = clampedY > entity.y ? 1 : -1;
+        entity.y = clampedY;
+        hit = true;
+      }
+    } else if (entity.x > ISLAND_X2 - margin * 0.25) {
+      entity.x = ISLAND_X2 - margin * 0.25;
+      nx = -1;
+      hit = true;
+    } else if (entity.x > (maxMainlandX + ISLAND_X1) * 0.5 && inIslandY) {
+      entity.x = ISLAND_X1;
+      nx = 1;
+      hit = true;
+    } else if (entity.x >= ISLAND_X1 && !inIslandY) {
+      ny = entity.y < ISLAND_Y1 ? 1 : -1;
+      entity.y = entity.y < ISLAND_Y1 ? ISLAND_Y1 : ISLAND_Y2;
+      hit = true;
+    } else {
+      entity.x = maxMainlandX;
+      nx = -1;
+      hit = true;
+    }
+  }
+
+  const minX = 80 + margin * 0.5;
+  const maxX = ISLAND_X2;
+  const minY = 80 + margin * 0.5;
+  const maxY = WORLD_HEIGHT - 120;
+  if (entity.x < minX) {
+    entity.x = minX;
+    nx = 1;
+    hit = true;
+  } else if (entity.x > maxX) {
+    entity.x = maxX;
+    nx = -1;
+    hit = true;
+  }
+  if (entity.y < minY) {
+    entity.y = minY;
+    ny = 1;
+    hit = true;
+  } else if (entity.y > maxY) {
+    entity.y = maxY;
+    ny = -1;
+    hit = true;
+  }
+  return { hit, nx, ny };
+}
+
+/**
+ * Exact 2D Separating Axis Theorem check for an Oriented Bounding Box vs an axis-aligned box.
+ */
+export function resolveOBBvsAABB(cx, cy, angle, halfL, halfW, aabb) {
+  const bx = aabb.x + aabb.w * 0.5;
+  const by = aabb.y + aabb.h * 0.5;
+  const bw2 = aabb.w * 0.5;
+  const bh2 = aabb.h * 0.5;
+  const dx = cx - bx;
+  const dy = cy - by;
+
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  const rx = -uy;
+  const ry = ux;
+
+  // Quick circle broadphase
+  const maxR = halfL + halfW;
+  if (Math.abs(dx) > bw2 + maxR || Math.abs(dy) > bh2 + maxR) {
+    return null;
+  }
+
+  let minPen = Infinity;
+  let bestNx = 0;
+  let bestNy = 0;
+
+  const axes = [
+    [1, 0],
+    [0, 1],
+    [ux, uy],
+    [rx, ry]
+  ];
+
+  for (let i = 0; i < 4; i++) {
+    const ax = axes[i][0];
+    const ay = axes[i][1];
+    const projV = halfL * Math.abs(ax * ux + ay * uy) + halfW * Math.abs(ax * rx + ay * ry);
+    const projB = bw2 * Math.abs(ax) + bh2 * Math.abs(ay);
+    const dist = dx * ax + dy * ay;
+    const pen = projV + projB - Math.abs(dist);
+    if (pen <= 0) return null;
+    if (pen < minPen) {
+      minPen = pen;
+      const sign = dist >= 0 ? 1 : -1;
+      bestNx = ax * sign;
+      bestNy = ay * sign;
+    }
+  }
+
+  return { overlap: minPen, nx: bestNx, ny: bestNy };
+}
+
+/**
+ * Exact 2D Separating Axis Theorem check between two Oriented Bounding Boxes.
+ */
+export function resolveOBBvsOBB(ax, ay, aAng, aHL, aHW, bx, by, bAng, bHL, bHW) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const maxR = aHL + aHW + bHL + bHW;
+  if (dx * dx + dy * dy > maxR * maxR) return null;
+
+  const aux = Math.cos(aAng);
+  const auy = Math.sin(aAng);
+  const arx = -auy;
+  const ary = aux;
+
+  const bux = Math.cos(bAng);
+  const buy = Math.sin(bAng);
+  const brx = -buy;
+  const bry = bux;
+
+  let minPen = Infinity;
+  let bestNx = 0;
+  let bestNy = 0;
+
+  const axes = [
+    [aux, auy],
+    [arx, ary],
+    [bux, buy],
+    [brx, bry]
+  ];
+
+  for (let i = 0; i < 4; i++) {
+    const lx = axes[i][0];
+    const ly = axes[i][1];
+    const projA = aHL * Math.abs(lx * aux + ly * auy) + aHW * Math.abs(lx * arx + ly * ary);
+    const projB = bHL * Math.abs(lx * bux + ly * buy) + bHW * Math.abs(lx * brx + ly * bry);
+    const dist = dx * lx + dy * ly;
+    const pen = projA + projB - Math.abs(dist);
+    if (pen <= 0) return null;
+    if (pen < minPen) {
+      minPen = pen;
+      const sign = dist >= 0 ? 1 : -1;
+      bestNx = lx * sign;
+      bestNy = ly * sign;
+    }
+  }
+
+  return { overlap: minPen, nx: bestNx, ny: bestNy };
+}
+
+export function resolveOBBvsBuildings(v, colliders) {
+  const hl = (v.length || 50) * 0.5;
+  const hw = (v.width || 24) * 0.5;
+  let hit = false;
+  let outNx = 0;
+  let outNy = 0;
+  let maxPen = 0;
+
+  if (colliders) {
+    for (let pass = 0; pass < 2; pass++) {
+      let anyPass = false;
+      for (const b of colliders) {
+        const res = resolveOBBvsAABB(v.x, v.y, v.angle, hl, hw, b);
+        if (res && res.overlap > 0.001) {
+          v.x += res.nx * res.overlap;
+          v.y += res.ny * res.overlap;
+          hit = true;
+          anyPass = true;
+          if (res.overlap > maxPen) {
+            maxPen = res.overlap;
+            outNx = res.nx;
+            outNy = res.ny;
+          }
+        }
+      }
+      if (!anyPass) break;
+    }
+  }
+
+  const wb = resolveWorldBounds(v, hw);
+  if (wb.hit) {
+    hit = true;
+    if (outNx === 0 && outNy === 0) {
+      outNx = wb.nx;
+      outNy = wb.ny;
+    }
+  }
+
+  return { hit, nx: outNx, ny: outNy, maxPen };
+}
+
+/**
+ * Resolves a circle entity (player or pedestrian) against a vehicle's oriented bounding box.
+ */
+export function resolveCircleOBBCollision(entity, radius, v, allowRoofStand = false) {
+  const hl = (v.length || 50) * 0.5;
+  const hw = (v.width || 24) * 0.5;
+  const cos = Math.cos(v.angle);
+  const sin = Math.sin(v.angle);
+  const dx = entity.x - v.x;
+  const dy = entity.y - v.y;
+  const lx = dx * cos + dy * sin;
+  const ly = -dx * sin + dy * cos;
+
+  const clampedX = Math.max(-hl, Math.min(hl, lx));
+  const clampedY = Math.max(-hw, Math.min(hw, ly));
+  const offX = lx - clampedX;
+  const offY = ly - clampedY;
+  const distSq = offX * offX + offY * offY;
+  if (distSq >= radius * radius) return false;
+
+  if (allowRoofStand && (entity.z || 0) >= (v.height || 14) * 0.68) {
+    return false;
+  }
+
+  let pushLx = 0;
+  let pushLy = 0;
+  if (distSq > 0.0001) {
+    const d = Math.sqrt(distSq);
+    const overlap = radius - d;
+    pushLx = (offX / d) * overlap;
+    pushLy = (offY / d) * overlap;
+  } else {
+    const penX = hl - Math.abs(lx) + radius;
+    const penY = hw - Math.abs(ly) + radius;
+    if (penX < penY) pushLx = (lx >= 0 ? 1 : -1) * penX;
+    else pushLy = (ly >= 0 ? 1 : -1) * penY;
+  }
+
+  entity.x += cos * pushLx - sin * pushLy;
+  entity.y += sin * pushLx + cos * pushLy;
+  return true;
+}
+
+export function resolveCircleProps(entity, radius, entityZ, propColliders) {
+  if (!propColliders) return false;
+  let hit = false;
+  for (const p of propColliders) {
+    if (p.knocked) continue;
+    if (entityZ > p.height + 1.0) continue;
+    const dx = entity.x - p.x;
+    const dy = entity.y - p.y;
+    const minDist = radius + p.radius;
+    const dSq = dx * dx + dy * dy;
+    if (dSq < minDist * minDist) {
+      const d = Math.sqrt(dSq) || 0.001;
+      const overlap = minDist - d;
+      entity.x += (dx / d) * overlap;
+      entity.y += (dy / d) * overlap;
+      hit = true;
+    }
+  }
+  return hit;
+}
+
+export function getGroundHeightAt(x, y, z, vehicles = null) {
+  let groundZ = 0;
+  if (x >= COAST_X - 32 && x <= COAST_X - 4) {
+    groundZ = 0.58;
+  } else if (
+    x >= CLUB_ECLIPSE_BOUNDS.x1 &&
+    x <= CLUB_ECLIPSE_BOUNDS.x2 &&
+    y >= CLUB_ECLIPSE_BOUNDS.y1 &&
+    y <= CLUB_ECLIPSE_BOUNDS.y2
+  ) {
+    groundZ = 0.36;
+  }
+
+  if (vehicles) {
+    for (const v of vehicles) {
+      if (v.destroyed) continue;
+      const topZ = v.height || 14;
+      if (z < topZ * 0.68) continue;
+      const cos = Math.cos(v.angle);
+      const sin = Math.sin(v.angle);
+      const dx = x - v.x;
+      const dy = y - v.y;
+      const lx = dx * cos + dy * sin;
+      const ly = -dx * sin + dy * cos;
+      if (Math.abs(lx) <= (v.length || 50) * 0.48 && Math.abs(ly) <= (v.width || 24) * 0.48) {
+        if (topZ > groundZ) groundZ = topZ;
+      }
+    }
+  }
+  return groundZ;
+}
+
+function rayBoxSlab(ox, oy, oz, dx, dy, dz, minX, maxX, minY, maxY, minZ, maxZ) {
+  let tmin = -Infinity;
+  let tmax = Infinity;
+  let nx = 0;
+  let ny = 0;
+  let nz = 0;
+
+  // X slab
+  if (Math.abs(dx) < 1e-8) {
+    if (ox < minX || ox > maxX) return null;
+  } else {
+    const inv = 1 / dx;
+    let t1 = (minX - ox) * inv;
+    let t2 = (maxX - ox) * inv;
+    let sign = -1;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+      sign = 1;
+    }
+    if (t1 > tmin) {
+      tmin = t1;
+      nx = sign;
+      ny = 0;
+      nz = 0;
+    }
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+
+  // Y slab (world 2D Y)
+  if (Math.abs(dy) < 1e-8) {
+    if (oy < minY || oy > maxY) return null;
+  } else {
+    const inv = 1 / dy;
+    let t1 = (minY - oy) * inv;
+    let t2 = (maxY - oy) * inv;
+    let sign = -1;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+      sign = 1;
+    }
+    if (t1 > tmin) {
+      tmin = t1;
+      nx = 0;
+      ny = sign;
+      nz = 0;
+    }
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+
+  // Z slab (vertical height)
+  if (Math.abs(dz) < 1e-8) {
+    if (oz < minZ || oz > maxZ) return null;
+  } else {
+    const inv = 1 / dz;
+    let t1 = (minZ - oz) * inv;
+    let t2 = (maxZ - oz) * inv;
+    let sign = -1;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+      sign = 1;
+    }
+    if (t1 > tmin) {
+      tmin = t1;
+      nx = 0;
+      ny = 0;
+      nz = sign;
+    }
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+
+  if (tmax < 0) return null;
+  return { t: tmin >= 0 ? tmin : tmax, nx, ny, nz, inside: tmin < 0 };
+}
+
+/**
+ * 3D raycast against building / wall colliders in world (x, y, zHeight) coordinates.
+ */
+export function raycastColliders3D(ox, oy, oz, dx, dy, dz, maxDist, colliders, padding = 0) {
+  if (!colliders) return null;
+  let best = null;
+  let bestT = maxDist;
+
+  for (const c of colliders) {
+    const h = c.height || 140;
+    const hit = rayBoxSlab(
+      ox,
+      oy,
+      oz,
+      dx,
+      dy,
+      dz,
+      c.x - padding,
+      c.x + c.w + padding,
+      c.y - padding,
+      c.y + c.h + padding,
+      0,
+      h + padding
+    );
+    if (hit && hit.t >= 0 && hit.t < bestT) {
+      bestT = hit.t;
+      best = {
+        t: hit.t,
+        x: ox + dx * hit.t,
+        y: oy + dy * hit.t,
+        z: oz + dz * hit.t,
+        nx: hit.nx,
+        ny: hit.ny,
+        nz: hit.nz,
+        inside: hit.inside,
+        collider: c
+      };
+    }
+  }
+  return best;
+}
+
+/**
+ * 3D crosshair raycast against buildings, vehicles, pedestrians, and ground plane.
+ */
+export function raycastWorldForAim(ox, oy, oz, dx, dy, dz, maxDist, state, minT = 0) {
+  const { cityMap, vehicles, pedestrians, player } = state;
+  let bestT = maxDist;
+  let bestHit = null;
+
+  // 1. Buildings & walls
+  const colliders = cityMap.colliders || cityMap.buildings;
+  if (colliders) {
+    for (const c of colliders) {
+      const hit = rayBoxSlab(ox, oy, oz, dx, dy, dz, c.x, c.x + c.w, c.y, c.y + c.h, 0, c.height || 140);
+      if (hit && hit.t >= minT && hit.t < bestT) {
+        bestT = hit.t;
+        bestHit = {
+          t: hit.t,
+          x: ox + dx * hit.t,
+          y: oy + dy * hit.t,
+          z: oz + dz * hit.t,
+          nx: hit.nx,
+          ny: hit.ny,
+          nz: hit.nz,
+          type: 'building',
+          entity: c
+        };
+      }
+    }
+  }
+
+  // 2. Vehicles (3D OBB)
+  if (vehicles) {
+    for (const v of vehicles) {
+      if (v.destroyed || v === player.vehicle) continue;
+      const cos = Math.cos(v.angle);
+      const sin = Math.sin(v.angle);
+      const rx = ox - v.x;
+      const ry = oy - v.y;
+      const lox = rx * cos + ry * sin;
+      const loy = -rx * sin + ry * cos;
+      const ldx = dx * cos + dy * sin;
+      const ldy = -dx * sin + dy * cos;
+      const hl = (v.length || 50) * 0.5;
+      const hw = (v.width || 24) * 0.5;
+      const hit = rayBoxSlab(lox, loy, oz - (v.z || 0), ldx, ldy, dz, -hl, hl, -hw, hw, 0, v.height || 14);
+      if (hit && hit.t >= minT && hit.t < bestT) {
+        bestT = hit.t;
+        bestHit = {
+          t: hit.t,
+          x: ox + dx * hit.t,
+          y: oy + dy * hit.t,
+          z: oz + dz * hit.t,
+          nx: cos * hit.nx - sin * hit.ny,
+          ny: sin * hit.nx + cos * hit.ny,
+          nz: hit.nz,
+          type: 'vehicle',
+          entity: v
+        };
+      }
+    }
+  }
+
+  // 3. Living Pedestrians (vertical cylinder)
+  if (pedestrians) {
+    const a2 = dx * dx + dy * dy;
+    const rad = 6.8;
+    for (const npc of pedestrians) {
+      if (npc.dead || npc.inCar) continue;
+      const rx = ox - npc.x;
+      const ry = oy - npc.y;
+      if (a2 > 1e-6) {
+        const b2 = 2 * (rx * dx + ry * dy);
+        const c2 = rx * rx + ry * ry - rad * rad;
+        const disc = b2 * b2 - 4 * a2 * c2;
+        if (disc < 0) continue;
+        const sqrtD = Math.sqrt(disc);
+        let tHit = (-b2 - sqrtD) / (2 * a2);
+        if (tHit < minT) tHit = (-b2 + sqrtD) / (2 * a2);
+        if (tHit >= minT && tHit < bestT) {
+          const hz = oz + dz * tHit;
+          const baseZ = npc.z || 0;
+          if (hz >= baseZ - 0.5 && hz <= baseZ + 18.8 * (npc.heightScale || 1)) {
+            bestT = tHit;
+            const hx = ox + dx * tHit;
+            const hy = oy + dy * tHit;
+            const nLen = Math.hypot(hx - npc.x, hy - npc.y) || 1;
+            bestHit = {
+              t: tHit,
+              x: hx,
+              y: hy,
+              z: hz,
+              nx: (hx - npc.x) / nLen,
+              ny: (hy - npc.y) / nLen,
+              nz: 0,
+              type: 'npc',
+              entity: npc
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Ground plane z = 0
+  if (dz < -1e-4) {
+    const tg = -oz / dz;
+    if (tg >= minT && tg < bestT) {
+      bestT = tg;
+      bestHit = {
+        t: tg,
+        x: ox + dx * tg,
+        y: oy + dy * tg,
+        z: 0,
+        nx: 0,
+        ny: 0,
+        nz: 1,
+        type: 'ground',
+        entity: null
+      };
+    }
+  }
+
+  if (!bestHit) {
+    return {
+      t: maxDist,
+      x: ox + dx * maxDist,
+      y: oy + dy * maxDist,
+      z: Math.max(0, oz + dz * maxDist),
+      nx: -dx,
+      ny: -dy,
+      nz: -dz,
+      type: null,
+      entity: null
+    };
+  }
+  return bestHit;
 }

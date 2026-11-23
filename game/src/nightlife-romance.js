@@ -1,3 +1,7 @@
+/**
+ * Club Eclipse 21+ Nightlife, Dancefloor, VIP Private Suite & In-Car Companion System.
+ * Coordinates Space/E/G/H input handoff cleanly with on-foot jump, vehicle handbrake, and camera pose overrides.
+ */
 export const CLUB_ECLIPSE_BOUNDS = {
   x1: 1608,
   y1: 1608,
@@ -201,7 +205,7 @@ export function tryInviteCompanionOrHonk(state) {
   if (!player.vehicle) return false;
 
   if (state.audio && state.audio.playHorn) {
-    state.audio.playHorn();
+    state.audio.playHorn(player.x, player.y);
   }
 
   if (nightlife.companionInCar) {
@@ -535,7 +539,8 @@ export function updateNightlifeSystem(state, dt) {
     const keys = (state.input && state.input.keys) || {};
     const movingKey = Boolean(
       keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD ||
-      keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight
+      keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight ||
+      keys.Space
     );
     if (!nl.inClub || player.vehicle || movingKey) {
       nl.dancing = false;

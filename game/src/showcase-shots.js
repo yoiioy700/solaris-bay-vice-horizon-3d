@@ -24,7 +24,7 @@ export function applyShowcaseShotIfRequested(state) {
   const { player, vehicles, pedestrians, wanted, projectiles, particles } = state;
 
   if (shot === 'chase') {
-    // Shot 1: 4-Star Sunset Supercar & Police Chopper Pursuit on a BUSTLING Ocean Drive
+    // Shot 1: 4-Star Sunset Supercar & Police Chopper Pursuit with visible tire skid marks & drift smoke on Ocean Drive
     startMissionByIndex(state, 0);
     const heroCar = vehicles[0];
     clearBackgroundVehiclesNear(vehicles, 2720, 1980, 320, heroCar, true);
@@ -36,6 +36,8 @@ export function applyShowcaseShotIfRequested(state) {
     heroCar.vx = Math.cos(heroCar.angle) * heroCar.speed;
     heroCar.vy = Math.sin(heroCar.angle) * heroCar.speed;
     heroCar.steerAngle = 0.26;
+    heroCar.bodyRoll = 0.11;
+    heroCar.bodyPitch = 0.032;
     heroCar.nitroActive = true;
     heroCar.drifting = true;
     heroCar.nitro = 84;
@@ -50,6 +52,28 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.stars = 4;
     wanted.heat = 720;
     wanted.sirenTimer = 0.4;
+
+    // Twin curving tire skid-mark ribbons trailing behind the drifting Apex V8 GT
+    state.skidMarks = [];
+    for (let i = 0; i < 16; i++) {
+      const distBack = 16 + i * 5.0;
+      const trailAng = heroCar.angle - i * 0.012;
+      const cos = Math.cos(trailAng);
+      const sin = Math.sin(trailAng);
+      const cx = heroCar.x - cos * distBack;
+      const cy = heroCar.y - sin * distBack;
+      for (const side of [-1, 1]) {
+        state.skidMarks.push({
+          x: cx - sin * 9.2 * side,
+          y: cy + cos * 9.2 * side,
+          angle: trailAng,
+          length: 5.8,
+          width: 2.3,
+          life: 7.5,
+          maxLife: 7.5
+        });
+      }
+    }
 
     // Pursuing VCPD Interceptors framing the supercar cleanly
     const cop1 = createVehicle('police_cruiser', 2690, 1995, -Math.PI * 0.48, {
@@ -122,19 +146,19 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.helicopter.angle = Math.PI * 0.48;
     wanted.helicopter.rotorAngle = 0.75;
 
-    // Subtle tire-level drift wisps leaving rear bumper, exhausts & nitro flames crisp
-    for (let i = 0; i < 8; i++) {
+    // Tire drift smoke wisps behind rear tires
+    for (let i = 0; i < 10; i++) {
       const side = i % 2 === 0 ? -10 : 10;
       particles.push({
         x: heroCar.x + side,
         y: heroCar.y + 28 + i * 5.2,
-        z: 1.8,
+        z: 2.0,
         vx: 0,
         vy: 15,
         vz: 4,
-        size: 2.2 + (i % 3) * 0.55,
-        color: i < 4 ? '#b0bac4' : '#c0bbb2',
-        life: 0.35,
+        size: 2.6 + (i % 3) * 0.65,
+        color: i < 5 ? '#b4bec8' : '#c4bfb6',
+        life: 0.38,
         maxLife: 0.5,
         kind: 'smoke'
       });
@@ -147,23 +171,35 @@ export function applyShowcaseShotIfRequested(state) {
       fov: 61
     };
   } else if (shot === 'hijack') {
-    // Shot 2: On-Foot 3D Carjacking & Street Gunfight in Lively Vice Neon Strip (Vice Armory + Vice Burger)
+    // Shot 2: Over-the-Shoulder On-Foot Gunfight & Carjacking in Club Eclipse / Vice Neon Strip
+    // Gun barrel points dead horizontally forward toward Syndicate enforcers with dynamic center crosshair!
     startMissionByIndex(state, 1);
     clearBackgroundVehiclesNear(vehicles, 1856, 1740, 260, null, true);
 
     player.vehicle = null;
     player.x = 1844;
     player.y = 1796;
-    player.angle = -Math.PI * 0.44;
+    player.z = 0;
+    player.grounded = true;
+    player.angle = -Math.PI * 0.46;
     player.weaponIndex = 1; // Spectre Micro-SMG
     player.muzzleTimer = 0.09;
+    player.aimHoldTimer = 0.9;
     player.cash = 164200;
+
+    state.camera.yaw = player.angle;
+    state.camera.pitch = 0;
+    state.camera.aiming = true;
+    state.camera.aimBlend = 1.0;
+    state.camera.showShowcaseCrosshair = true;
+    state.camera.aimTargetType = 'npc';
+    state.camera.hitMarkerTimer = 0.12;
 
     wanted.stars = 2;
     wanted.heat = 280;
 
     // Convertible Comet GT Cabrio ready to carjack + Muscle Car + VCPD Cruiser + Yellow Cab upstreet
-    const targetCabrio = createVehicle('comet_cabrio', 1874, 1766, -Math.PI * 0.56, {
+    const targetCabrio = createVehicle('comet_cabrio', 1876, 1766, -Math.PI * 0.56, {
       aiRole: 'parked'
     });
     const neonMuscle = createVehicle('stinger_muscle', 1824, 1718, Math.PI * 0.45, {
@@ -178,16 +214,16 @@ export function applyShowcaseShotIfRequested(state) {
     });
     vehicles.push(targetCabrio, neonMuscle, copInterceptor, taxiUpstreet);
 
-    // Syndicate Enforcers exchanging gunfire with player
-    const guard1 = createPedestrian(1846, 1706, 'syndicate');
-    guard1.angle = Math.PI * 0.52;
+    // Syndicate Enforcers exchanging horizontal gunfire with player
+    const guard1 = createPedestrian(1855, 1712, 'syndicate');
+    guard1.angle = Math.PI * 0.54;
     guard1.muzzleTimer = 0.08;
 
-    const guard2 = createPedestrian(1878, 1698, 'syndicate');
-    guard2.angle = Math.PI * 0.58;
+    const guard2 = createPedestrian(1884, 1702, 'syndicate');
+    guard2.angle = Math.PI * 0.62;
     guard2.muzzleTimer = 0.08;
 
-    // Startled bystanders ducking/fleeing along the Vice Burger & Vice Armory sidewalks
+    // Startled bystanders fleeing cleanly along the Vice Burger & Vice Armory sidewalks
     const bystander1 = createPedestrian(1802, 1762, 'civilian', {
       angle: Math.PI * 0.72,
       panicTimer: 4.0,
@@ -208,14 +244,18 @@ export function applyShowcaseShotIfRequested(state) {
     });
     pedestrians.push(guard1, guard2, bystander1, bystander2, bystander3);
 
-    // Warm ballistic bullet tracers in mid-air
-    for (let i = 0; i < 5; i++) {
+    // Horizontal ballistic bullet tracers aligned straight out of the Spectre SMG barrel (z ~ 15.2) toward guard1
+    const cosA = Math.cos(player.angle);
+    const sinA = Math.sin(player.angle);
+    for (let i = 0; i < 4; i++) {
+      const dist = 16 + i * 17;
       projectiles.push({
-        x: player.x + 4 + i * 1.5,
-        y: player.y - 18 - i * 14,
-        z: 12.5,
-        vx: 120,
-        vy: -780,
+        x: player.x + cosA * dist - sinA * 3.1,
+        y: player.y + sinA * dist + cosA * 3.1,
+        z: 15.2,
+        vx: cosA * 860,
+        vy: sinA * 860,
+        vz: 0,
         damage: 26,
         life: 0.6,
         color: '#e8c47a',
@@ -223,13 +263,14 @@ export function applyShowcaseShotIfRequested(state) {
       });
     }
 
+    // True right-shoulder over-the-shoulder framing with center crosshair directly on the Syndicate enforcer!
     state.camera.overridePose = {
-      eye: [1832, 31, 1868],
-      look: [1860, 22, 1706],
-      fov: 60
+      eye: [1845.5, 19.5, 1829],
+      look: [1855, 13.5, 1712],
+      fov: 50
     };
   } else if (shot === 'heist') {
-    // Shot 3: 5-Star Story Heist in Bustling Downtown Vice Plaza (Palm 24/7 Mart, Café, Bus Stop & Traffic Lights)
+    // Shot 3: 5-Star Story Heist in Bustling Downtown Vice Plaza (shockwave, debris, fireball, scorch decal)
     startMissionByIndex(state, 4);
     const heroCar = vehicles[0];
     const convoy = state.missions.targetEntity;
@@ -247,6 +288,8 @@ export function applyShowcaseShotIfRequested(state) {
     player.vehicle = null;
     player.x = 1208;
     player.y = 882;
+    player.z = 0;
+    player.grounded = true;
     player.angle = -Math.PI * 0.48;
     player.weaponIndex = 4; // Titan AT-4 RPG Launcher
     player.muzzleTimer = 0.09;
@@ -280,7 +323,7 @@ export function applyShowcaseShotIfRequested(state) {
     });
     vehicles.push(swat1, cop1, plazaVan);
 
-    // Trigger dramatic layered 3D Explosion Fireball & Charcoal Smoke Plumes next to the convoy
+    // Trigger dramatic layered 3D Explosion Fireball, Shockwave Ring, Debris & Scorch Decal next to the convoy
     triggerExplosion(state, 1236, 778, 8, 95, 110);
     // Keep foreground sidewalk spotless (no stray dropped cash octahedrons from staged blast)
     state.pickups.length = 0;
@@ -334,7 +377,6 @@ export function applyShowcaseShotIfRequested(state) {
     const heroCar = vehicles[0];
     clearBackgroundVehiclesNear(vehicles, 2720, 810, 260, heroCar, true);
 
-    // Park hero supercar & roadster cleanly along Ocean Drive, leaving boardwalk & Tropical Juice Bar front and center
     heroCar.x = 2694;
     heroCar.y = 842;
     heroCar.angle = -Math.PI * 0.46;
@@ -349,10 +391,11 @@ export function applyShowcaseShotIfRequested(state) {
     });
     vehicles.push(parkedCabrio, marinaTaxi);
 
-    // Position player right on the Marina Boardwalk facing Tropical Juice Bar (triggers diegetic [E] shop prompt!)
     player.vehicle = null;
     player.x = 2742;
     player.y = 812;
+    player.z = 0.58;
+    player.grounded = true;
     player.angle = -Math.PI * 0.12;
     player.cash = 385000;
     player.armor = 100;
@@ -362,7 +405,6 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.heat = 0;
     wanted.helicopter.active = false;
 
-    // Lively Marina Boardwalk tourists, beachgoers & joggers framing the left side of the screen
     pedestrians.push(
       createPedestrian(2756, 774, 'civilian', {
         z: 0.58,
@@ -390,7 +432,6 @@ export function applyShowcaseShotIfRequested(state) {
     saveCareerToStorage(state);
     state.hudBanner = null;
 
-    // Frame the vibrant Starfish Marina waterfront, Tropical Juice Bar + vendor, boardwalk locals, beach & yachts
     state.camera.overridePose = {
       eye: [2620, 46, 926],
       look: [2868, 14, 738],

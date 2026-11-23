@@ -276,6 +276,23 @@ export const VEHICLE_TYPES = {
   }
 };
 
+export const PLAYER_PHYSICS = {
+  walkSpeed: 106,
+  sprintSpeed: 164,
+  aimSpeed: 74,
+  accelRate: 13.5,
+  decelRate: 15.5,
+  airControl: 4.5,
+  gravity: 235,
+  jumpVelocity: 98,
+  coyoteTime: 0.11,
+  jumpBuffer: 0.12,
+  radius: 9,
+  height: 18.5
+};
+
+export const GEAR_THRESHOLDS = [0, 0.17, 0.35, 0.56, 0.78, 1.02];
+
 export const WEAPONS = [
   {
     id: 'pistol',
@@ -284,9 +301,11 @@ export const WEAPONS = [
     shortName: '9MM PISTOL',
     damage: 34,
     fireRate: 0.22,
-    speed: 780,
-    range: 540,
-    spread: 0.025,
+    speed: 820,
+    range: 560,
+    spread: 0.018,
+    recoilPitch: 0.018,
+    bloomPerShot: 0.016,
     pellets: 1,
     ammo: 999,
     color: '#e0b268'
@@ -298,9 +317,11 @@ export const WEAPONS = [
     shortName: 'SPECTRE SMG',
     damage: 26,
     fireRate: 0.085,
-    speed: 840,
-    range: 560,
-    spread: 0.055,
+    speed: 860,
+    range: 580,
+    spread: 0.036,
+    recoilPitch: 0.012,
+    bloomPerShot: 0.013,
     pellets: 1,
     ammo: 360,
     color: '#64bcc9'
@@ -312,9 +333,11 @@ export const WEAPONS = [
     shortName: 'TACTICAL 12G',
     damage: 24,
     fireRate: 0.58,
-    speed: 720,
-    range: 360,
-    spread: 0.14,
+    speed: 740,
+    range: 380,
+    spread: 0.11,
+    recoilPitch: 0.046,
+    bloomPerShot: 0.042,
     pellets: 6,
     ammo: 96,
     color: '#d98c57'
@@ -326,9 +349,11 @@ export const WEAPONS = [
     shortName: 'STRIKER M4',
     damage: 44,
     fireRate: 0.11,
-    speed: 960,
-    range: 720,
-    spread: 0.03,
+    speed: 980,
+    range: 740,
+    spread: 0.02,
+    recoilPitch: 0.016,
+    bloomPerShot: 0.014,
     pellets: 1,
     ammo: 240,
     color: '#63c792'
@@ -340,11 +365,13 @@ export const WEAPONS = [
     shortName: 'TITAN RPG',
     damage: 260,
     fireRate: 1.15,
-    speed: 620,
-    range: 780,
-    spread: 0.01,
+    speed: 640,
+    range: 800,
+    spread: 0.008,
+    recoilPitch: 0.064,
+    bloomPerShot: 0.035,
     pellets: 1,
-    explosiveRadius: 115,
+    explosiveRadius: 120,
     ammo: 18,
     color: '#d96b6b'
   }
@@ -356,6 +383,7 @@ export const RADIO_STATIONS = [
     name: 'VICE 104.9 SYNTHWAVE',
     genre: 'Outrun Sunset Electro',
     bpm: 118,
+    cutoff: 880,
     notes: [220, 261.63, 329.63, 392.0, 329.63, 293.66, 261.63, 196.0],
     bass: [110, 110, 130.81, 146.83]
   },
@@ -364,6 +392,7 @@ export const RADIO_STATIONS = [
     name: 'SOLARIS 98.3 MIAMI BASS',
     genre: 'Cyberpunk Club Drive',
     bpm: 126,
+    cutoff: 820,
     notes: [196.0, 233.08, 293.66, 349.23, 392.0, 349.23, 293.66, 233.08],
     bass: [98.0, 98.0, 116.54, 130.81]
   },
@@ -372,6 +401,7 @@ export const RADIO_STATIONS = [
     name: 'NEON PULSE 107.7',
     genre: 'Darkwave Arpeggio',
     bpm: 132,
+    cutoff: 760,
     notes: [164.81, 196.0, 246.94, 329.63, 293.66, 246.94, 196.0, 146.83],
     bass: [82.41, 82.41, 98.0, 123.47]
   },
@@ -380,6 +410,7 @@ export const RADIO_STATIONS = [
     name: 'POLICE SCANNER / OFF',
     genre: 'VCPD Tactical Dispatch',
     bpm: 0,
+    cutoff: 600,
     notes: [],
     bass: []
   }

@@ -1,7 +1,13 @@
-import { resolveCircleBuildingCollisions } from './city-map.js';
+import {
+  resolveCircleBuildingCollisions,
+  resolveCircleProps,
+  resolveCircleOBBCollision,
+  getGroundHeightAt
+} from './city-map.js';
 import { COAST_X } from './config.js';
 import { CLUB_ECLIPSE_BOUNDS, isInsideClubEclipse } from './nightlife-romance.js';
 import { getActiveWalkInShopAt } from './shops-economy.js';
+import { addCrimeHeat } from './police-wanted.js';
 
 let nextNpcId = 1;
 
@@ -135,6 +141,17 @@ export function createPedestrian(x, y, role = 'civilian', overrides = {}) {
     walkDir: idNum % 4 < 2 ? 1 : -1,
     homeX: x,
     homeY: y,
+    vz: 0,
+    voicePitch: 118 + ((idNum * 37) % 148),
+    knockbackTimer: 0,
+    downTimer: 0,
+    flinchTimer: 0,
+    shoveTimer: 0,
+    bumpCooldown: 0,
+    tumblePitch: 0,
+    tumbleRoll: 0,
+    tumbleVelPitch: 0,
+    tumbleVelRoll: 0,
     dead: false,
     ...overrides
   };
@@ -373,14 +390,191 @@ export function alertNearbyCivilians(state, cx, cy, radius = 290) {
   }
 }
 
+export function handleVehiclePedestrianContacts(state, v) {
+  if (!state || !state.pedestrians || !v || v.destroyed) return;
+  const spd = v.speed || 0;
+  if (spd < 25) return;
+
+  const hl = (v.length || 50) * 0.5 + 5.5;
+  const hw = (v.width || 24) * 0.5 + 5.5;
+  const cos = Math.cos(v.angle);
+  const sin = Math.sin(v.angle);
+
+  for (const npc of state.pedestrians) {
+    if (npc.dead || npc.inCar || npc.isVendor) continue;
+    if ((npc.bumpCooldown || 0) > 0 && spd < 85) continue;
+
+    const dx = npc.x - v.x;
+    const dy = npc.y - v.y;
+    if (dx * dx + dy * dy > (hl + 8) * (hl + 8)) continue;
+
+    const lx = dx * cos + dy * sin;
+    const ly = -dx * sin + dy * cos;
+    if (Math.abs(lx) > hl || Math.abs(ly) > hw) continue;
+
+    // Push NPC cleanly outside the front/side bumper first so we don't re-hit next substep
+    const sideSign = ly >= 0 ? 1 : -1;
+    const pushOutX = -sin * sideSign * (hw + 4 - Math.abs(ly)) * 0.5 + cos * 6;
+    const pushOutY = cos * sideSign * (hw + 4 - Math.abs(ly)) * 0.5 + sin * 6;
+    npc.x += pushOutX;
+    npc.y += pushOutY;
+
+    if (spd >= 85) {
+      // High-speed impact: ballistic arc with tumble, dust burst, thud + vocal yelp, camera shake, wanted heat!
+      const vAng = Math.atan2(v.vy || sin, v.vx || cos);
+      const launchAng = vAng + sideSign * 0.28;
+      const launchSpd = Math.min(265, spd * 0.78);
+      npc.vx = Math.cos(launchAng) * launchSpd;
+      npc.vy = Math.sin(launchAng) * launchSpd;
+      npc.vz = 62 + Math.min(96, spd * 0.25);
+      npc.tumblePitch = 0;
+      npc.tumbleRoll = 0;
+      npc.tumbleVelPitch = (Math.random() > 0.5 ? 1 : -1) * (8.5 + Math.random() * 5);
+      npc.tumbleVelRoll = (Math.random() - 0.5) * 7.5;
+      npc.knockbackTimer = 1.65;
+      npc.downTimer = 10.5;
+      npc.bumpCooldown = 1.2;
+
+      damagePedestrian(state, npc, Math.max(85, spd * 0.75), v.vx, v.vy, {
+        isCarHit: true,
+        speed: spd
+      });
+
+      v.vx *= 0.93;
+      v.vy *= 0.93;
+      v.speed = Math.hypot(v.vx, v.vy);
+
+      if (state.particles) {
+        for (let k = 0; k < 7; k++) {
+          state.particles.push({
+            x: npc.x + (Math.random() - 0.5) * 8,
+            y: npc.y + (Math.random() - 0.5) * 8,
+            z: 4 + Math.random() * 6,
+            vx: (Math.random() - 0.5) * 85,
+            vy: (Math.random() - 0.5) * 85,
+            vz: 18 + Math.random() * 28,
+            size: 4.2,
+            color: '#c8bfb0',
+            life: 0.45,
+            maxLife: 0.45,
+            kind: 'smoke'
+          });
+        }
+      }
+
+      if (v === state.player.vehicle) {
+        state.camera.trauma = Math.min(1, state.camera.trauma + Math.min(0.38, spd / 400));
+        addCrimeHeat(state, npc.role === 'police' ? 95 : 48, 'HIT AND RUN REPORTED');
+      }
+    } else {
+      // Low-speed bump: shove aside cleanly + annoyed vocal grunt + panic
+      const pushAng = Math.atan2(dy, dx);
+      npc.vx = Math.cos(pushAng) * 92 + v.vx * 0.35;
+      npc.vy = Math.sin(pushAng) * 92 + v.vy * 0.35;
+      npc.vz = 18;
+      npc.shoveTimer = 0.45;
+      npc.bumpCooldown = 0.68;
+      npc.panicTimer = 4.5;
+      if (state.audio && state.audio.playNpcHit) {
+        state.audio.playNpcHit(spd, npc.voicePitch, npc.x, npc.y);
+      }
+    }
+  }
+}
+
 export function updatePedestrians(state, dt) {
-  const { player, pedestrians, cityMap, projectiles, pickups } = state;
+  const { player, pedestrians, cityMap, projectiles, pickups, vehicles } = state;
+  const colliders = cityMap.colliders || cityMap.buildings;
 
   for (const npc of pedestrians) {
-    if (npc.dead) continue;
+    if (npc.bumpCooldown > 0) npc.bumpCooldown = Math.max(0, npc.bumpCooldown - dt);
+    if (npc.flinchTimer > 0) npc.flinchTimer = Math.max(0, npc.flinchTimer - dt);
+
+    // Update airborne tumble & downed lying state (including lethal car/gun hits)
+    if (npc.dead || (npc.knockbackTimer || 0) > 0) {
+      if ((npc.knockbackTimer || 0) > 0) {
+        npc.knockbackTimer = Math.max(0, npc.knockbackTimer - dt);
+      }
+      if ((npc.downTimer || 0) > 0) {
+        npc.downTimer = Math.max(0, npc.downTimer - dt);
+        const groundZ = getGroundHeightAt(npc.x, npc.y, 0);
+        if ((npc.z || 0) > groundZ || Math.abs(npc.vz || 0) > 2 || Math.hypot(npc.vx || 0, npc.vy || 0) > 4) {
+          npc.x += (npc.vx || 0) * dt;
+          npc.y += (npc.vy || 0) * dt;
+          npc.z = (npc.z || 0) + (npc.vz || 0) * dt;
+          npc.vz = (npc.vz || 0) - 235 * dt;
+          npc.tumblePitch = (npc.tumblePitch || 0) + (npc.tumbleVelPitch || 0) * dt;
+          npc.tumbleRoll = (npc.tumbleRoll || 0) + (npc.tumbleVelRoll || 0) * dt;
+
+          if (resolveCircleBuildingCollisions(npc, 7, colliders)) {
+            npc.vx *= -0.35;
+            npc.vy *= -0.35;
+          }
+
+          if (npc.z <= groundZ) {
+            if (npc.vz < -45 && state.particles) {
+              for (let d = 0; d < 4; d++) {
+                state.particles.push({
+                  x: npc.x + (Math.random() - 0.5) * 6,
+                  y: npc.y + (Math.random() - 0.5) * 6,
+                  z: groundZ + 1.5,
+                  vx: (Math.random() - 0.5) * 45,
+                  vy: (Math.random() - 0.5) * 45,
+                  vz: 12 + Math.random() * 14,
+                  size: 3.4,
+                  color: '#c4b8a6',
+                  life: 0.35,
+                  maxLife: 0.35,
+                  kind: 'smoke'
+                });
+              }
+            }
+            npc.z = groundZ;
+            npc.vz = Math.abs(npc.vz) > 45 ? -npc.vz * 0.2 : 0;
+            npc.vx *= 0.45;
+            npc.vy *= 0.45;
+            if (Math.abs(npc.vz) < 12) {
+              npc.vz = 0;
+              npc.tumblePitch = Math.PI * 0.5;
+              npc.tumbleRoll = 0;
+              npc.tumbleVelPitch = 0;
+              npc.tumbleVelRoll = 0;
+            }
+          }
+        } else {
+          npc.vx = 0;
+          npc.vy = 0;
+          npc.vz = 0;
+          npc.z = groundZ;
+          npc.tumblePitch = Math.PI * 0.5;
+          npc.tumbleVelPitch = 0;
+          npc.tumbleVelRoll = 0;
+        }
+      }
+      if (npc.dead) continue;
+    }
+
     npc.muzzleTimer = Math.max(0, npc.muzzleTimer - dt);
     npc.fireCooldown = Math.max(0, npc.fireCooldown - dt);
     npc.idlePhase = (npc.idlePhase || 0) + dt * 2.2;
+
+    if ((npc.shoveTimer || 0) > 0) {
+      npc.shoveTimer = Math.max(0, npc.shoveTimer - dt);
+      npc.x += (npc.vx || 0) * dt;
+      npc.y += (npc.vy || 0) * dt;
+      npc.z = (npc.z || 0) + (npc.vz || 0) * dt;
+      npc.vz = (npc.vz || 0) - 220 * dt;
+      const gZ = getGroundHeightAt(npc.x, npc.y, 0);
+      if (npc.z <= gZ) {
+        npc.z = gZ;
+        npc.vz = 0;
+      }
+      npc.vx *= Math.exp(-5 * dt);
+      npc.vy *= Math.exp(-5 * dt);
+      resolveCircleBuildingCollisions(npc, 8, colliders);
+      resolveCircleProps(npc, 8, npc.z || 0, cityMap.propColliders);
+      continue;
+    }
 
     const dx = player.x - npc.x;
     const dy = player.y - npc.y;
@@ -523,11 +717,25 @@ export function updatePedestrians(state, dt) {
     const hitWall = resolveCircleBuildingCollisions(
       npc,
       8,
-      cityMap.colliders || cityMap.buildings
+      colliders
     );
     if (hitWall && !npc.hostile) {
       npc.walkDir = -npc.walkDir;
       npc.angle += Math.PI;
+    }
+
+    // Keep civilians clear of world props and stopped vehicles so they never clip through them
+    if (resolveCircleProps(npc, 7.5, npc.z || 0, cityMap.propColliders) && !npc.hostile) {
+      npc.walkDir = -npc.walkDir;
+      npc.angle += Math.PI;
+    }
+    if (vehicles && dist < 480) {
+      for (const v of vehicles) {
+        if (v.destroyed || v.speed >= 25) continue;
+        if (resolveCircleOBBCollision(npc, 7.5, v, false) && !npc.hostile) {
+          npc.walkDir = -npc.walkDir;
+        }
+      }
     }
 
     // Keep civilians clear of solid street cart footprints so they never walk through shop counters
@@ -542,11 +750,6 @@ export function updatePedestrians(state, dt) {
           npc.y += (sdy / sd) * (12 - sd);
         }
       }
-    }
-
-    // Vehicle roadkill check if player is driving fast
-    if (player.vehicle && player.vehicle.speed > 130 && dist < 24 && !npc.isVendor) {
-      damagePedestrian(state, npc, 120, player.vehicle.vx, player.vehicle.vy);
     }
   }
 
@@ -571,19 +774,58 @@ export function updatePedestrians(state, dt) {
   }
 }
 
-export function damagePedestrian(state, npc, amount, impulseX = 0, impulseY = 0) {
+export function damagePedestrian(state, npc, amount, impulseX = 0, impulseY = 0, opts = {}) {
   if (npc.dead) return;
   npc.hp -= amount;
-  if (!npc.isVendor) {
-    npc.x += impulseX * 0.03;
-    npc.y += impulseY * 0.03;
+  npc.flinchTimer = 0.24;
+
+  const impLen = Math.hypot(impulseX, impulseY) || 1;
+  if (!npc.isVendor && !opts.isCarHit) {
+    npc.x += (impulseX / impLen) * 3.5;
+    npc.y += (impulseY / impLen) * 3.5;
+  }
+
+  if (state.particles) {
+    for (let k = 0; k < 4; k++) {
+      state.particles.push({
+        x: npc.x + (Math.random() - 0.5) * 4,
+        y: npc.y + (Math.random() - 0.5) * 4,
+        z: (npc.z || 0) + 10 + Math.random() * 4,
+        vx: (impulseX / impLen) * 40 + (Math.random() - 0.5) * 45,
+        vy: (impulseY / impLen) * 40 + (Math.random() - 0.5) * 45,
+        vz: 14 + Math.random() * 18,
+        size: 2.6,
+        color: '#c9a692',
+        life: 0.25,
+        maxLife: 0.25,
+        kind: 'smoke'
+      });
+    }
+  }
+
+  if (state.audio) {
+    if (opts.isCarHit && state.audio.playNpcHit) {
+      state.audio.playNpcHit(opts.speed || 120, npc.voicePitch, npc.x, npc.y);
+    } else if (state.audio.playNpcGrunt) {
+      state.audio.playNpcGrunt(npc.voicePitch, npc.x, npc.y);
+    }
   }
 
   // Trigger panic / ducking in nearby civilians & vendors
-  alertNearbyCivilians(state, npc.x, npc.y, 260);
+  alertNearbyCivilians(state, npc.x, npc.y, 280);
 
   if (npc.hp <= 0) {
     npc.dead = true;
+    npc.downTimer = Math.max(npc.downTimer || 0, 10.0);
+    if (!opts.isCarHit) {
+      npc.knockbackTimer = 0.8;
+      npc.vx = (impulseX / impLen) * 65;
+      npc.vy = (impulseY / impLen) * 65;
+      npc.vz = 22;
+      npc.tumblePitch = 0;
+      npc.tumbleVelPitch = 6.2;
+      npc.tumbleVelRoll = (Math.random() - 0.5) * 3;
+    }
     state.pickups.push({
       x: npc.x,
       y: npc.y,

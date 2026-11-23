@@ -90,7 +90,7 @@ export function updatePoliceSystem(state, dt) {
     wanted.cooldownTimer = 0;
   }
 
-  // Active police cruiser pursuit steering
+  // Active police cruiser pursuit steering (velocity integrated cleanly with OBB collisions in updateVehicles)
   let activePoliceVehicles = 0;
   for (const v of vehicles) {
     if (!v.isPolice || v.destroyed || player.vehicle === v) continue;
@@ -108,12 +108,11 @@ export function updatePoliceSystem(state, dt) {
     v.steerAngle = Math.max(-0.42, Math.min(0.42, diff));
     v.angle += Math.sign(diff) * Math.min(Math.abs(diff), v.turnRate * dt);
 
-    const targetSpd = dist > 95 ? v.maxSpeed * 0.86 : 110;
+    const targetSpd = dist > 95 ? v.maxSpeed * 0.84 : 110;
     v.speed += (targetSpd - v.speed) * Math.min(1, 3.2 * dt);
     v.vx = Math.cos(v.angle) * v.speed;
     v.vy = Math.sin(v.angle) * v.speed;
-    v.x += v.vx * dt;
-    v.y += v.vy * dt;
+    v.rpm = Math.min(0.95, 0.25 + (v.speed / v.maxSpeed) * 0.72);
   }
 
   // Spawn reinforcement police interceptors or SWAT Bearcat units

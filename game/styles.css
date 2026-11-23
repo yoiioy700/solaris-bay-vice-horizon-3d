@@ -41,6 +41,11 @@ body {
 #webgl-canvas {
   z-index: 1;
   cursor: crosshair;
+  outline: none;
+}
+
+body.pointer-locked #webgl-canvas {
+  cursor: none;
 }
 
 #hud-canvas {

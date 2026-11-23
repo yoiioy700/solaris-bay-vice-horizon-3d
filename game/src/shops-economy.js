@@ -653,6 +653,13 @@ export function openShopModal(state, shop) {
     state.nightlife.carMenuOpen = false;
   }
   state.input.mouseDown = false;
+  if (typeof document !== 'undefined' && document.pointerLockElement && document.exitPointerLock) {
+    try {
+      document.exitPointerLock();
+    } catch {
+      // Ignore exit pointer lock errors in headless mode
+    }
+  }
   state.shopModal.open = true;
   state.shopModal.shop = shop;
   state.shopModal.hoveredIndex = -1;

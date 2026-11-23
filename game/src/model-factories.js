@@ -811,7 +811,9 @@ export function buildCharacterModel3D(person, lib) {
   }
 
   const weaponGroup = new THREE.Group();
-  weaponGroup.position.set(3.4, -4.6, -0.3);
+  // Orient weapon so +X (barrel) aligns with -Y along the arm; when arm raises by +PI/2, barrel points straight forward (+X)!
+  weaponGroup.position.set(1.15, -6.1, -0.25);
+  weaponGroup.rotation.z = -Math.PI * 0.5;
 
   const receiver = new THREE.Mesh(
     new THREE.BoxGeometry(5.8, 1.45, 0.95),
@@ -855,19 +857,20 @@ export function buildCharacterModel3D(person, lib) {
     map: lib.muzzleStarTex,
     color: 0xf6cf88,
     transparent: true,
-    opacity: 0.86,
+    opacity: 0.9,
     depthWrite: false,
     blending: THREE.AdditiveBlending
   });
   const muzzleFlashMesh = new THREE.Sprite(muzzleMat);
-  muzzleFlashMesh.scale.set(4.8, 4.8, 1);
-  muzzleFlashMesh.position.set(6.3, 0.25, 0);
+  muzzleFlashMesh.scale.set(5.2, 5.2, 1);
+  muzzleFlashMesh.position.set(6.4, 0.25, 0);
   muzzleFlashMesh.visible = false;
   weaponGroup.add(muzzleFlashMesh);
 
   rightArmPivot.add(weaponGroup);
 
   root.userData = {
+    aoShadow,
     leftLegPivot,
     rightLegPivot,
     leftArmPivot,
@@ -875,6 +878,9 @@ export function buildCharacterModel3D(person, lib) {
     torsoGroup,
     headGroup,
     weaponGroup,
+    weaponReceiver: receiver,
+    weaponBarrel: barrel,
+    weaponMagazine: magazine,
     muzzleFlashMesh,
     jacketMat,
     shirtMat,

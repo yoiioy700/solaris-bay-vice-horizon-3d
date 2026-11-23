@@ -1,6 +1,14 @@
-import { VEHICLE_TYPES } from './config.js';
-import { resolveCircleBuildingCollisions } from './city-map.js';
+import { VEHICLE_TYPES, GEAR_THRESHOLDS } from './config.js';
+import {
+  resolveCircleBuildingCollisions,
+  resolveCircleProps,
+  resolveCircleOBBCollision,
+  resolveOBBvsBuildings,
+  resolveOBBvsOBB,
+  getGroundHeightAt
+} from './city-map.js';
 import { closeShopModal } from './shops-economy.js';
+import { handleVehiclePedestrianContacts } from './pedestrians.js';
 
 let nextVehicleId = 1;
 
@@ -21,6 +29,7 @@ export function createVehicle(typeId, x, y, angle = 0, overrides = {}) {
     driftGrip: spec.driftGrip,
     maxHp: spec.maxHp,
     hp: spec.maxHp,
+    mass: spec.isHeavy ? 2.4 : spec.isPolice ? 1.3 : 1.0,
     color: overrides.color || spec.color,
     stripeColor: overrides.stripeColor || spec.stripeColor,
     hasSpoiler: Boolean(spec.hasSpoiler),
@@ -39,6 +48,19 @@ export function createVehicle(typeId, x, y, angle = 0, overrides = {}) {
     angle,
     steerAngle: 0,
     wheelSpin: 0,
+    gear: 1,
+    rpm: 0.22,
+    shiftDipTimer: 0,
+    prevThrottle: 0,
+    braking: false,
+    slipIntensity: 0,
+    bodyRoll: 0,
+    bodyPitch: 0,
+    suspBounce: 0,
+    suspVel: 0,
+    crashCooldown: 0,
+    scrapeCooldown: 0,
+    skidAccum: 0,
     nitro: 100,
     nitroActive: false,
     drifting: false,
@@ -124,108 +146,394 @@ export function spawnInitialVehicles(cityMap) {
   return list;
 }
 
+function spawnSkidPair(state, v) {
+  if (!state.skidMarks) state.skidMarks = [];
+  const cos = Math.cos(v.angle);
+  const sin = Math.sin(v.angle);
+  const rearX = v.x - cos * (v.length * 0.31);
+  const rearY = v.y - sin * (v.length * 0.31);
+  const trackHalfW = v.width * 0.38;
+  for (const side of [-1, 1]) {
+    state.skidMarks.push({
+      x: rearX - sin * trackHalfW * side,
+      y: rearY + cos * trackHalfW * side,
+      angle: v.angle,
+      length: 5.5,
+      width: 2.3,
+      life: 7.5,
+      maxLife: 7.5
+    });
+  }
+  if (state.skidMarks.length > 160) {
+    state.skidMarks.splice(0, state.skidMarks.length - 160);
+  }
+}
+
+function updateKnockedProps(cityMap, dt) {
+  if (!cityMap || !cityMap.propColliders) return;
+  for (const p of cityMap.propColliders) {
+    if (p.hitCooldown > 0) p.hitCooldown = Math.max(0, p.hitCooldown - dt);
+    if (!p.knocked) continue;
+    if (p.tilt < 1.48) {
+      p.kx += p.kvx * dt;
+      p.ky += p.kvy * dt;
+      p.kz += p.kvz * dt;
+      p.kvz -= 220 * dt;
+      p.kvx *= Math.exp(-2.8 * dt);
+      p.kvy *= Math.exp(-2.8 * dt);
+      p.tilt = Math.min(1.48, p.tilt + 5.8 * dt);
+      if (p.kz <= (p.z || 0)) {
+        p.kz = p.z || 0;
+        p.kvz = Math.abs(p.kvz) > 25 ? -p.kvz * 0.28 : 0;
+      }
+    }
+  }
+}
+
+function resolveVehicleVsProps(state, v, isPlayer) {
+  const props = state.cityMap && state.cityMap.propColliders;
+  if (!props) return;
+  const hl = (v.length || 50) * 0.5;
+  const hw = (v.width || 24) * 0.5;
+  const cos = Math.cos(v.angle);
+  const sin = Math.sin(v.angle);
+
+  for (const p of props) {
+    if (p.knocked) continue;
+    const dx = p.x - v.x;
+    const dy = p.y - v.y;
+    const maxR = hl + hw + p.radius;
+    if (dx * dx + dy * dy > maxR * maxR) continue;
+
+    const lx = dx * cos + dy * sin;
+    const ly = -dx * sin + dy * cos;
+    const cx = Math.max(-hl, Math.min(hl, lx));
+    const cy = Math.max(-hw, Math.min(hw, ly));
+    const offX = lx - cx;
+    const offY = ly - cy;
+    const dSq = offX * offX + offY * offY;
+    if (dSq >= p.radius * p.radius) continue;
+
+    if (p.breakable && v.speed > 72) {
+      p.knocked = true;
+      const spdScale = Math.min(1.0, v.speed / 240);
+      p.kvx = v.vx * 0.65 + (p.x - v.x) * 1.8;
+      p.kvy = v.vy * 0.65 + (p.y - v.y) * 1.8;
+      p.kvz = 36 + spdScale * 48;
+      p.tiltAxisAngle = Math.atan2(v.vy || sin, v.vx || cos);
+      v.vx *= 0.91;
+      v.vy *= 0.91;
+      v.speed = Math.hypot(v.vx, v.vy);
+      v.suspVel += 8;
+
+      if (state.particles) {
+        const isHydrant = p.kind === 'hydrant';
+        for (let k = 0; k < (isHydrant ? 10 : 5); k++) {
+          state.particles.push({
+            x: p.x + (Math.random() - 0.5) * 4,
+            y: p.y + (Math.random() - 0.5) * 4,
+            z: isHydrant ? 4 + k * 2 : 3,
+            vx: (Math.random() - 0.5) * 70,
+            vy: (Math.random() - 0.5) * 70,
+            vz: isHydrant ? 55 + Math.random() * 55 : 22 + Math.random() * 30,
+            size: isHydrant ? 3.2 : 2.1,
+            color: isHydrant ? '#bfe3f2' : '#f2c96d',
+            life: isHydrant ? 0.55 : 0.25,
+            maxLife: isHydrant ? 0.55 : 0.25,
+            kind: isHydrant ? 'smoke' : 'spark'
+          });
+        }
+      }
+      if (isPlayer) {
+        state.camera.trauma = Math.min(1, state.camera.trauma + 0.14);
+      }
+      if (state.audio && state.audio.playPropHit && (isPlayer || Math.hypot(p.x - state.player.x, p.y - state.player.y) < 360)) {
+        state.audio.playPropHit(p.kind, p.x, p.y);
+      }
+    } else {
+      const dist = Math.sqrt(dSq) || 0.001;
+      const pen = p.radius - dist;
+      const nLx = dist > 0.001 ? -offX / dist : lx >= 0 ? -1 : 1;
+      const nLy = dist > 0.001 ? -offY / dist : 0;
+      const nx = cos * nLx - sin * nLy;
+      const ny = sin * nLx + cos * nLy;
+      v.x += nx * pen;
+      v.y += ny * pen;
+      const vn = -(v.vx * nx + v.vy * ny);
+      if (vn > 0) {
+        v.vx += nx * vn * 1.2;
+        v.vy += ny * vn * 1.2;
+        v.speed = Math.hypot(v.vx, v.vy);
+        if (vn > 45 && v.crashCooldown <= 0) {
+          v.crashCooldown = 0.18;
+          v.suspVel += Math.min(12, vn * 0.05);
+          if (isPlayer) {
+            state.camera.trauma = Math.min(1, state.camera.trauma + Math.min(0.28, vn / 420));
+          }
+          if (state.audio && state.audio.playCrash && (isPlayer || Math.hypot(v.x - state.player.x, v.y - state.player.y) < 360)) {
+            state.audio.playCrash(Math.min(1, vn / 260), v.x, v.y);
+          }
+        }
+      }
+    }
+  }
+}
+
 export function updateVehicles(state, dt) {
   const { player, input, vehicles, cityMap } = state;
+  const colliders = cityMap.colliders || cityMap.buildings;
+
+  updateKnockedProps(cityMap, dt);
+
+  if (state.skidMarks) {
+    for (let i = state.skidMarks.length - 1; i >= 0; i--) {
+      state.skidMarks[i].life -= dt;
+      if (state.skidMarks[i].life <= 0) {
+        state.skidMarks.splice(i, 1);
+      }
+    }
+  }
 
   for (const v of vehicles) {
     if (v.destroyed) continue;
     v.sirenPhase += dt * 9;
+    v.crashCooldown = Math.max(0, (v.crashCooldown || 0) - dt);
+    v.scrapeCooldown = Math.max(0, (v.scrapeCooldown || 0) - dt);
+    v.shiftDipTimer = Math.max(0, (v.shiftDipTimer || 0) - dt);
 
-    if (player.vehicle === v) {
+    const isPlayer = player.vehicle === v;
+    if (isPlayer) {
       updatePlayerDrivenVehicle(state, v, input, dt);
+    } else if (v.isPolice && v.aiRole === 'police_pursuit') {
+      // Velocity was set by updatePoliceSystem; advance via shared substepped collision below
     } else if (v.aiRole === 'traffic' && v.driver === 'civilian') {
       updateTrafficVehicleAI(v, vehicles, player, dt);
     } else if (v.aiRole === 'convoy') {
       updateConvoyVehicleAI(v, dt);
     } else {
-      // Friction slowdown for unoccupied / parked vehicles
       v.vx *= Math.exp(-4.5 * dt);
       v.vy *= Math.exp(-4.5 * dt);
       if (Math.hypot(v.vx, v.vy) < 1.5) {
         v.vx = 0;
         v.vy = 0;
       }
-      v.x += v.vx * dt;
-      v.y += v.vy * dt;
       v.speed = Math.hypot(v.vx, v.vy);
       v.nitroActive = false;
       v.drifting = false;
+      v.braking = false;
+      v.slipIntensity = 0;
+      v.rpm = Math.max(0, (v.rpm || 0) * Math.exp(-3 * dt));
     }
 
-    // Advance wheel spin & building collision
-    const forwardDot = v.vx * Math.cos(v.angle) + v.vy * Math.sin(v.angle);
-    v.wheelSpin += (forwardDot * dt) / 3.6;
+    // Substepped integration & OBB building/prop/pedestrian collisions (no step > 3.5 units -> zero tunneling!)
+    const moveDist = Math.hypot(v.vx * dt, v.vy * dt);
+    const steps = Math.max(1, Math.min(16, Math.ceil(moveDist / 3.5)));
+    const subDt = dt / steps;
+    let maxWallImpact = 0;
+    let wallHitNx = 0;
+    let wallHitNy = 0;
 
-    const hitBuilding = resolveCircleBuildingCollisions(
-      v,
-      Math.max(v.width, v.length) * 0.36,
-      cityMap.colliders || cityMap.buildings
-    );
-    if (hitBuilding && v.speed > 90) {
-      v.vx *= -0.35;
-      v.vy *= -0.35;
-      v.speed *= 0.35;
-      if (player.vehicle === v) {
-        state.camera.trauma = Math.min(1, state.camera.trauma + 0.25);
+    for (let step = 0; step < steps; step++) {
+      v.x += v.vx * subDt;
+      v.y += v.vy * subDt;
+
+      const bRes = resolveOBBvsBuildings(v, colliders);
+      if (bRes.hit) {
+        const vn = -(v.vx * bRes.nx + v.vy * bRes.ny);
+        if (vn > 0) {
+          const rest = vn > 110 ? 0.26 : 0.08;
+          v.vx += bRes.nx * vn * (1 + rest);
+          v.vy += bRes.ny * vn * (1 + rest);
+          const tx = -bRes.ny;
+          const ty = bRes.nx;
+          const vt = v.vx * tx + v.vy * ty;
+          const scrapeDamp = Math.max(0.75, 1 - 0.12 * Math.min(1, vn / 140));
+          v.vx = (v.vx - tx * vt) + tx * vt * scrapeDamp;
+          v.vy = (v.vy - ty * vt) + ty * vt * scrapeDamp;
+          if (vn > maxWallImpact) {
+            maxWallImpact = vn;
+            wallHitNx = bRes.nx;
+            wallHitNy = bRes.ny;
+          }
+        } else if (isPlayer && v.speed > 65 && v.scrapeCooldown <= 0) {
+          v.scrapeCooldown = 0.06;
+          if (state.particles) {
+            state.particles.push({
+              x: v.x - bRes.nx * (v.width * 0.45),
+              y: v.y - bRes.ny * (v.width * 0.45),
+              z: 4.5,
+              vx: -v.vx * 0.25 + (Math.random() - 0.5) * 60,
+              vy: -v.vy * 0.25 + (Math.random() - 0.5) * 60,
+              vz: 24 + Math.random() * 26,
+              size: 2.2,
+              color: '#f5ca64',
+              life: 0.22,
+              maxLife: 0.22,
+              kind: 'spark'
+            });
+          }
+        }
+      }
+
+      if (v.speed > 5 || isPlayer) {
+        resolveVehicleVsProps(state, v, isPlayer);
+      }
+
+      if (v.speed > 25 && (isPlayer || v.isPolice || Math.hypot(v.x - player.x, v.y - player.y) < 420)) {
+        handleVehiclePedestrianContacts(state, v);
       }
     }
+
+    if (maxWallImpact > 42 && v.crashCooldown <= 0) {
+      v.crashCooldown = 0.16;
+      v.suspVel += Math.min(14, maxWallImpact * 0.06);
+      if (isPlayer) {
+        state.camera.trauma = Math.min(1, state.camera.trauma + Math.min(0.45, maxWallImpact / 360));
+        v.hp = Math.max(15, v.hp - maxWallImpact * 0.045);
+      }
+      if (state.particles) {
+        const sparkX = v.x - wallHitNx * (v.length * 0.35);
+        const sparkY = v.y - wallHitNy * (v.length * 0.35);
+        for (let k = 0; k < 7; k++) {
+          state.particles.push({
+            x: sparkX + (Math.random() - 0.5) * 6,
+            y: sparkY + (Math.random() - 0.5) * 6,
+            z: 4.5,
+            vx: wallHitNx * 65 + (Math.random() - 0.5) * 90,
+            vy: wallHitNy * 65 + (Math.random() - 0.5) * 90,
+            vz: 26 + Math.random() * 40,
+            size: 2.3,
+            color: '#f5ca64',
+            life: 0.26,
+            maxLife: 0.26,
+            kind: 'spark'
+          });
+        }
+      }
+      if (state.audio && state.audio.playCrash && (isPlayer || Math.hypot(v.x - player.x, v.y - player.y) < 380)) {
+        state.audio.playCrash(Math.min(1, maxWallImpact / 280), v.x, v.y);
+      }
+    }
+
+    v.speed = Math.hypot(v.vx, v.vy);
+    const forwardDot = v.vx * Math.cos(v.angle) + v.vy * Math.sin(v.angle);
+    const wheelRadius = v.isHeavy ? 4.4 : 3.7;
+    v.wheelSpin += (forwardDot * dt) / wheelRadius;
+
+    // Suspension bounce spring-damper
+    const springF = -95 * (v.suspBounce || 0) - 13 * (v.suspVel || 0);
+    v.suspVel = (v.suspVel || 0) + springF * dt;
+    v.suspBounce = Math.max(-1.6, Math.min(1.6, (v.suspBounce || 0) + v.suspVel * dt));
   }
 
-  // Vehicle-to-Vehicle collision resolution with clean parallel-lane clearance
-  for (let i = 0; i < vehicles.length; i++) {
-    const a = vehicles[i];
-    if (a.destroyed) continue;
-    for (let j = i + 1; j < vehicles.length; j++) {
-      const b = vehicles[j];
-      if (b.destroyed) continue;
-      // Two stationary curb-parked vehicles never push each other
-      if (a.isCurbParked && b.isCurbParked && a.speed < 1 && b.speed < 1) continue;
+  // Exact multi-pass OBB-to-OBB Vehicle collision resolution (zero overlapping/stacking or building tunneling)
+  for (let pass = 0; pass < 4; pass++) {
+    let anyPairHit = false;
+    for (let i = 0; i < vehicles.length; i++) {
+      const a = vehicles[i];
+      if (a.destroyed) continue;
+      for (let j = i + 1; j < vehicles.length; j++) {
+        const b = vehicles[j];
+        if (b.destroyed) continue;
+        if (a.isCurbParked && b.isCurbParked && a.speed < 1 && b.speed < 1) continue;
 
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      // Tight realistic side-by-side clearance (0.48 * sum of widths) so parallel lanes & curb bays don't bump
-      const minDist = (a.width + b.width) * 0.49;
-      const distSq = dx * dx + dy * dy;
-      if (distSq > 0.001 && distSq < minDist * minDist) {
-        const dist = Math.sqrt(distSq);
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const overlap = minDist - dist;
+        const res = resolveOBBvsOBB(
+          a.x,
+          a.y,
+          a.angle,
+          (a.length || 50) * 0.5,
+          (a.width || 24) * 0.5,
+          b.x,
+          b.y,
+          b.angle,
+          (b.length || 50) * 0.5,
+          (b.width || 24) * 0.5
+        );
+        if (!res || res.overlap <= 0.001) continue;
 
-        // If one car is curb-parked and the other is AI traffic, steer AI smoothly without displacing parked car
-        if (a.isCurbParked && !b.isCurbParked && player.vehicle !== b) {
+        anyPairHit = true;
+        const { nx, ny, overlap } = res;
+        const aIsPlayer = player.vehicle === a;
+        const bIsPlayer = player.vehicle === b;
+
+        if (a.isCurbParked && !b.isCurbParked && !bIsPlayer && a.speed < 2) {
           b.x += nx * overlap;
           b.y += ny * overlap;
-        } else if (b.isCurbParked && !a.isCurbParked && player.vehicle !== a) {
+          resolveOBBvsBuildings(b, colliders);
+        } else if (b.isCurbParked && !a.isCurbParked && !aIsPlayer && b.speed < 2) {
           a.x -= nx * overlap;
           a.y -= ny * overlap;
+          resolveOBBvsBuildings(a, colliders);
         } else {
-          a.x -= nx * overlap * 0.5;
-          a.y -= ny * overlap * 0.5;
-          b.x += nx * overlap * 0.5;
-          b.y += ny * overlap * 0.5;
-        }
+          a.isCurbParked = false;
+          b.isCurbParked = false;
+          const invMa = 1 / (a.mass || 1);
+          const invMb = 1 / (b.mass || 1);
+          const invSum = invMa + invMb;
+          a.x -= nx * overlap * (invMa / invSum);
+          a.y -= ny * overlap * (invMa / invSum);
+          b.x += nx * overlap * (invMb / invSum);
+          b.y += ny * overlap * (invMb / invSum);
 
-        const relVx = a.vx - b.vx;
-        const relVy = a.vy - b.vy;
-        const impact = relVx * nx + relVy * ny;
-        if (impact > 0) {
-          a.vx -= nx * impact * 0.52;
-          a.vy -= ny * impact * 0.52;
-          b.vx += nx * impact * 0.52;
-          b.vy += ny * impact * 0.52;
-          if (impact > 110 && (player.vehicle === a || player.vehicle === b)) {
-            state.camera.trauma = Math.min(1, state.camera.trauma + 0.32);
+          resolveOBBvsBuildings(a, colliders);
+          resolveOBBvsBuildings(b, colliders);
+
+          const relVx = a.vx - b.vx;
+          const relVy = a.vy - b.vy;
+          const impact = relVx * nx + relVy * ny;
+          if (impact > 0) {
+            const restitution = 0.34;
+            const jImp = ((1 + restitution) * impact) / invSum;
+            a.vx -= nx * jImp * invMa;
+            a.vy -= ny * jImp * invMa;
+            b.vx += nx * jImp * invMb;
+            b.vy += ny * jImp * invMb;
+            a.speed = Math.hypot(a.vx, a.vy);
+            b.speed = Math.hypot(b.vx, b.vy);
+
+            if (impact > 42 && (a.crashCooldown <= 0 || b.crashCooldown <= 0)) {
+              a.crashCooldown = 0.16;
+              b.crashCooldown = 0.16;
+              a.suspVel += 6;
+              b.suspVel += 6;
+              const hitX = (a.x + b.x) * 0.5;
+              const hitY = (a.y + b.y) * 0.5;
+              if (aIsPlayer || bIsPlayer) {
+                state.camera.trauma = Math.min(1, state.camera.trauma + Math.min(0.45, impact / 320));
+              }
+              if (state.particles && impact > 65) {
+                for (let k = 0; k < 6; k++) {
+                  state.particles.push({
+                    x: hitX + (Math.random() - 0.5) * 6,
+                    y: hitY + (Math.random() - 0.5) * 6,
+                    z: 5,
+                    vx: (Math.random() - 0.5) * 110,
+                    vy: (Math.random() - 0.5) * 110,
+                    vz: 24 + Math.random() * 32,
+                    size: 2.2,
+                    color: '#f5ca64',
+                    life: 0.24,
+                    maxLife: 0.24,
+                    kind: 'spark'
+                  });
+                }
+              }
+              if (state.audio && state.audio.playCrash && (aIsPlayer || bIsPlayer || Math.hypot(hitX - player.x, hitY - player.y) < 380)) {
+                state.audio.playCrash(Math.min(1, impact / 240), hitX, hitY);
+              }
+            }
           }
         }
       }
     }
+    if (!anyPairHit) break;
   }
 
   // Sync player world position to active vehicle
   if (player.vehicle) {
     player.x = player.vehicle.x;
     player.y = player.vehicle.y;
+    player.z = player.vehicle.z || 0;
     player.angle = player.vehicle.angle;
   }
 
@@ -236,7 +544,8 @@ export function updateVehicles(state, dt) {
 
 function updatePlayerDrivenVehicle(state, v, input, dt) {
   const modalOpen = Boolean(
-    (state.shopModal && state.shopModal.open) ||
+    state.startScreenOpen ||
+      (state.shopModal && state.shopModal.open) ||
       state.safehouseModalOpen ||
       (state.nightlife &&
         (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen || state.nightlife.session))
@@ -252,7 +561,7 @@ function updatePlayerDrivenVehicle(state, v, input, dt) {
   const handbrake = modalOpen ? true : Boolean(input.keys.Space);
   const wantNitro = !modalOpen && Boolean(input.keys.ShiftLeft || input.keys.ShiftRight);
 
-  v.steerAngle = steerInput * 0.44;
+  v.steerAngle += (steerInput * 0.44 - v.steerAngle) * Math.min(1, 12 * dt);
   v.isCurbParked = false;
 
   const cos = Math.cos(v.angle);
@@ -270,56 +579,112 @@ function updatePlayerDrivenVehicle(state, v, input, dt) {
     v.nitro = Math.min(100, v.nitro + 12 * dt);
   }
 
+  const maxSpd = v.nitroActive ? v.maxSpeed * 1.24 : v.maxSpeed;
+  const speedRatio = Math.min(1.02, Math.abs(forwardSpeed) / maxSpd);
+  const torque = 1.32 - 0.42 * speedRatio;
+
   if (throttle > 0) {
-    forwardSpeed += v.accel * throttle * dt;
+    v.braking = false;
+    forwardSpeed += v.accel * torque * throttle * dt;
   } else if (throttle < 0) {
-    if (forwardSpeed > 20) {
-      forwardSpeed -= v.brake * dt;
+    if (forwardSpeed > 18) {
+      v.braking = true;
+      forwardSpeed -= v.brake * 1.28 * dt;
     } else {
-      forwardSpeed += v.accel * 0.65 * throttle * dt;
+      v.braking = false;
+      forwardSpeed += v.accel * 0.68 * throttle * dt;
     }
   } else {
-    forwardSpeed *= Math.exp(-1.5 * dt);
+    v.braking = false;
+    // Rolling resistance + subtle aerodynamic drag
+    forwardSpeed -=
+      forwardSpeed * 1.15 * dt +
+      Math.sign(forwardSpeed) * forwardSpeed * forwardSpeed * 0.00085 * dt;
   }
 
   if (handbrake) {
-    forwardSpeed *= Math.exp(-2.2 * dt);
+    forwardSpeed *= Math.exp(-1.9 * dt);
   }
 
-  const maxSpd = v.nitroActive ? v.maxSpeed * 1.24 : v.maxSpeed;
-  forwardSpeed = Math.max(-maxSpd * 0.42, Math.min(maxSpd, forwardSpeed));
+  forwardSpeed = Math.max(-maxSpd * 0.40, Math.min(maxSpd, forwardSpeed));
 
-  // Steering turn rate scales with speed
-  const speedFactor = Math.min(1, Math.abs(forwardSpeed) / 95);
+  // Auto gear + RPM model with shift dips
+  let targetGear = 1;
+  for (let g = 1; g < GEAR_THRESHOLDS.length; g++) {
+    if (speedRatio >= GEAR_THRESHOLDS[g]) targetGear = g + 1;
+  }
+  targetGear = Math.min(v.maxSpeed >= 380 ? 6 : 5, targetGear);
+  if (targetGear > (v.gear || 1) && forwardSpeed > 30) {
+    v.shiftDipTimer = 0.13;
+  }
+  v.gear = forwardSpeed < -10 ? 0 : targetGear;
+
+  const bandLow = GEAR_THRESHOLDS[Math.max(0, targetGear - 1)] || 0;
+  const bandHigh = GEAR_THRESHOLDS[Math.min(GEAR_THRESHOLDS.length - 1, targetGear)] || 1;
+  const bandNorm = Math.max(0, Math.min(1, (speedRatio - bandLow) / Math.max(0.08, bandHigh - bandLow)));
+  const targetRpm =
+    0.20 +
+    bandNorm * 0.74 +
+    (throttle > 0 ? 0.08 : 0) -
+    (v.shiftDipTimer > 0 ? 0.24 : 0);
+  v.rpm += (Math.max(0.16, Math.min(1.0, targetRpm)) - (v.rpm || 0.2)) * Math.min(1, 14 * dt);
+
+  // Exhaust pop on high-RPM throttle lift-off
+  if (v.prevThrottle > 0.35 && throttle <= 0 && v.rpm > 0.62) {
+    if (state.audio && state.audio.playExhaustPop) {
+      state.audio.playExhaustPop(v.x, v.y);
+    }
+  }
+  v.prevThrottle = throttle;
+
+  // Speed-sensitive steering (nimble at low speed, steady at 400+ top speed)
+  const lowSpeedFactor = Math.min(1, Math.abs(forwardSpeed) / 72);
+  const highSpeedTaper = 1 / (1 + Math.abs(forwardSpeed) * 0.0018);
   const dirSign = forwardSpeed >= -5 ? 1 : -1;
-  const turnMult = handbrake ? 1.28 : 1.0;
-  v.angle += steerInput * v.turnRate * speedFactor * dirSign * turnMult * dt;
+  const turnMult = handbrake ? 1.32 : 1.0;
+  v.angle += steerInput * v.turnRate * lowSpeedFactor * highSpeedTaper * dirSign * turnMult * dt;
 
   // Lateral grip & drift slip
-  const grip = handbrake ? 2.2 : 7.8 * v.driftGrip;
+  const grip = handbrake ? 2.25 : 9.2 * v.driftGrip;
   lateralSpeed *= Math.exp(-grip * dt);
+  v.slipIntensity = Math.min(1, Math.max(0, (Math.abs(lateralSpeed) - 24) / 86));
+  if (v.braking && Math.abs(forwardSpeed) > 130) {
+    v.slipIntensity = Math.max(v.slipIntensity, 0.45);
+  }
   v.drifting =
-    (handbrake && Math.abs(forwardSpeed) > 110) || Math.abs(lateralSpeed) > 48;
+    (handbrake && Math.abs(forwardSpeed) > 85) || Math.abs(lateralSpeed) > 42;
 
   const nCos = Math.cos(v.angle);
   const nSin = Math.sin(v.angle);
   v.vx = nCos * forwardSpeed - nSin * lateralSpeed;
   v.vy = nSin * forwardSpeed + nCos * lateralSpeed;
-
-  v.x += v.vx * dt;
-  v.y += v.vy * dt;
   v.speed = Math.hypot(v.vx, v.vy);
 
-  // Emit 3D tire drift smoke particles
-  if ((v.drifting || v.nitroActive) && state.particles) {
+  // Smooth visual body roll & squat/dive pitch
+  const targetRoll =
+    Math.max(-0.16, Math.min(0.16, ((steerInput * forwardSpeed) / 360) * 0.13 + (lateralSpeed / 180) * 0.08));
+  const targetPitch =
+    (throttle > 0 ? 0.028 : v.braking ? -0.048 : 0) + (v.nitroActive ? 0.024 : 0);
+  v.bodyRoll += (targetRoll - (v.bodyRoll || 0)) * Math.min(1, 10 * dt);
+  v.bodyPitch += (targetPitch - (v.bodyPitch || 0)) * Math.min(1, 10 * dt);
+
+  // Skid marks & 3D tire drift smoke particles
+  if (v.drifting || (v.braking && Math.abs(forwardSpeed) > 125)) {
+    v.skidAccum = (v.skidAccum || 0) + v.speed * dt;
+    if (v.skidAccum >= 4.2) {
+      v.skidAccum = 0;
+      spawnSkidPair(state, v);
+    }
+  }
+  if ((v.drifting || v.nitroActive || v.slipIntensity > 0.3) && state.particles) {
     state.particles.push({
       x: v.x - nCos * (v.length * 0.42) + (Math.random() - 0.5) * 10,
       y: v.y - nSin * (v.length * 0.42) + (Math.random() - 0.5) * 10,
       z: 2.2,
-      vx: -v.vx * 0.18 + (Math.random() - 0.5) * 20,
-      vy: -v.vy * 0.18 + (Math.random() - 0.5) * 20,
+      vx: -v.vx * 0.16 + (Math.random() - 0.5) * 20,
+      vy: -v.vy * 0.16 + (Math.random() - 0.5) * 20,
       vz: 10 + Math.random() * 14,
-      size: v.nitroActive ? 4.4 : 5.8,
+      size: v.nitroActive ? 4.4 : 5.6,
       color: v.nitroActive ? '#a8b7c4' : '#b8b6b0',
       life: 0.45,
       maxLife: 0.45,
@@ -362,8 +727,7 @@ function updateTrafficVehicleAI(v, vehicles, player, dt) {
   v.speed += (targetSpeed - v.speed) * Math.min(1, 3.8 * dt);
   v.vx = cos * v.speed;
   v.vy = sin * v.speed;
-  v.x += v.vx * dt;
-  v.y += v.vy * dt;
+  v.rpm = Math.min(0.75, 0.22 + (v.speed / v.maxSpeed) * 0.55);
 
   // Smooth U-turn at boulevard ends across expanded 5200x5120 city + smart traffic streaming near player
   const rx = v.roadX || 1856;
@@ -403,8 +767,7 @@ function updateConvoyVehicleAI(v, dt) {
   v.speed = 135;
   v.vx = cos * v.speed;
   v.vy = sin * v.speed;
-  v.x += v.vx * dt;
-  v.y += v.vy * dt;
+  v.rpm = 0.52;
   if (v.x > 2450) v.angle = Math.PI;
   if (v.x < 450) v.angle = 0;
 }
@@ -430,18 +793,30 @@ export function tryToggleVehicle(state) {
     closeShopModal(state);
   }
   if (player.vehicle) {
-    // Exit vehicle onto street side, safely resolving building clearance
+    // Exit vehicle onto street side, safely resolving building/prop/vehicle clearance
     const v = player.vehicle;
     const exitSideAngle = v.angle - Math.PI * 0.5;
-    player.x = v.x + Math.cos(exitSideAngle) * (v.width * 0.9);
-    player.y = v.y + Math.sin(exitSideAngle) * (v.width * 0.9);
+    const distOut = v.width * 0.5 + 11;
+    player.x = v.x + Math.cos(exitSideAngle) * distOut;
+    player.y = v.y + Math.sin(exitSideAngle) * distOut;
+    player.z = getGroundHeightAt(player.x, player.y, 0);
+    player.vz = 0;
+    player.grounded = true;
+    player.vx = 0;
+    player.vy = 0;
     if (cityMap && (cityMap.colliders || cityMap.buildings)) {
       resolveCircleBuildingCollisions(player, 9, cityMap.colliders || cityMap.buildings);
+      resolveCircleProps(player, 9, player.z, cityMap.propColliders);
     }
+    resolveCircleOBBCollision(player, 9, v, false);
     player.vehicle = null;
     v.driver = null;
     v.nitroActive = false;
     v.drifting = false;
+    v.braking = false;
+    if (state.audio && state.audio.onVehicleExit) {
+      state.audio.onVehicleExit(v);
+    }
     return { action: 'exit', vehicle: v };
   }
 
@@ -450,9 +825,18 @@ export function tryToggleVehicle(state) {
     player.vehicle = target;
     player.x = target.x;
     player.y = target.y;
+    player.z = target.z || 0;
+    player.vz = 0;
+    player.grounded = true;
     player.angle = target.angle;
     target.driver = 'player';
     target.isCurbParked = false;
+    if (state.camera) {
+      state.camera.orbitIdleTimer = 2.0;
+    }
+    if (state.audio && state.audio.onVehicleEnter) {
+      state.audio.onVehicleEnter(target);
+    }
     return { action: 'enter', vehicle: target };
   }
   return null;

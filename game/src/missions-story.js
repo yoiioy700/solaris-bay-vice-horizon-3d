@@ -174,6 +174,9 @@ export function completeActiveMission(state) {
     color: '#e0b268',
     timer: 4.0
   };
+  if (state.audio && state.audio.playShopChime) {
+    state.audio.playShopChime(false);
+  }
 
   if (active.index === 3 || active.index === 5) {
     addCrimeHeat(state, 280, 'HIGH-PROFILE SYNDICATE HEIST REPORTED');
