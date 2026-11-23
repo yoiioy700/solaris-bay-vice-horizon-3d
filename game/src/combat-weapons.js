@@ -10,7 +10,11 @@ import {
 } from './city-map.js';
 import { damagePedestrian, alertNearbyCivilians } from './pedestrians.js';
 import { addCrimeHeat } from './police-wanted.js';
-import { createInitialWeaponAmmo, getActiveWalkInShopAt } from './shops-economy.js';
+import {
+  createInitialWeaponAmmo,
+  createInitialWeaponMag,
+  getActiveWalkInShopAt
+} from './shops-economy.js';
 import { isInsideClubEclipse } from './nightlife-romance.js';
 
 function lerpAngle(a, b, t) {
@@ -225,10 +229,248 @@ export function computeAimRay(state) {
   return { pose, hit };
 }
 
+export function switchPlayerWeapon(state, newIndex) {
+  const { player } = state;
+  const count = WEAPONS.length;
+  const clamped = ((Math.floor(newIndex) % count) + count) % count;
+  if (clamped !== player.weaponIndex) {
+    player.weaponIndex = clamped;
+    player.reloadTimer = 0;
+    player.reloadingWeaponId = null;
+    player.fireCooldown = Math.min(player.fireCooldown || 0, 0.12);
+  }
+  return clamped;
+}
+
+export function completeWeaponReload(state) {
+  const { player } = state;
+  const targetId = player.reloadingWeaponId;
+  player.reloadTimer = 0;
+  player.reloadingWeaponId = null;
+  const weapon = WEAPONS.find((w) => w.id === targetId) || WEAPONS[player.weaponIndex];
+  if (!weapon || weapon.isMelee || !weapon.magSize) return false;
+
+  if (!player.weaponAmmo) player.weaponAmmo = createInitialWeaponAmmo();
+  if (!player.weaponMag) player.weaponMag = createInitialWeaponMag();
+
+  const curMag = player.weaponMag[weapon.id] ?? 0;
+  const reserve = player.weaponAmmo[weapon.id] ?? 0;
+  const needed = Math.max(0, weapon.magSize - curMag);
+  const loaded = Math.min(needed, reserve);
+  if (loaded > 0) {
+    player.weaponMag[weapon.id] = curMag + loaded;
+    player.weaponAmmo[weapon.id] = reserve - loaded;
+  }
+  if (state.audio && state.audio.playReloadFinish) {
+    state.audio.playReloadFinish(weapon.id, player.x, player.y);
+  }
+  return loaded > 0;
+}
+
+export function startWeaponReload(state) {
+  const { player } = state;
+  if (
+    state.paused ||
+    state.startScreenOpen ||
+    player.vehicle ||
+    (state.shopModal && state.shopModal.open) ||
+    state.safehouseModalOpen ||
+    (state.nightlife &&
+      (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen || state.nightlife.session))
+  ) {
+    return false;
+  }
+
+  const weapon = WEAPONS[player.weaponIndex] || WEAPONS[1];
+  if (!weapon || weapon.isMelee || !weapon.magSize) return false;
+  if ((player.reloadTimer || 0) > 0) return false;
+
+  if (!player.weaponAmmo) player.weaponAmmo = createInitialWeaponAmmo();
+  if (!player.weaponMag) player.weaponMag = createInitialWeaponMag();
+
+  const curMag = player.weaponMag[weapon.id] ?? weapon.magSize;
+  const reserve = player.weaponAmmo[weapon.id] ?? 0;
+  if (curMag >= weapon.magSize || reserve <= 0) return false;
+
+  player.reloadTimer = weapon.reloadTime || 1.25;
+  player.reloadingWeaponId = weapon.id;
+  if (state.camera) state.camera.aiming = false;
+  if (state.audio && state.audio.playReloadStart) {
+    state.audio.playReloadStart(weapon.id, player.x, player.y);
+  }
+  return true;
+}
+
+export function performMeleePunch(state) {
+  const { player, pedestrians, vehicles, particles } = state;
+  if (
+    state.paused ||
+    state.startScreenOpen ||
+    player.vehicle ||
+    (state.shopModal && state.shopModal.open) ||
+    state.safehouseModalOpen ||
+    (state.nightlife &&
+      (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen || state.nightlife.session))
+  ) {
+    return false;
+  }
+  if ((player.punchCooldown || 0) > 0) return false;
+
+  // Cancel active reload cleanly for instant responsive melee
+  if ((player.reloadTimer || 0) > 0) {
+    player.reloadTimer = 0;
+    player.reloadingWeaponId = null;
+  }
+
+  const combo = ((player.punchCombo || 0) % 3) + 1;
+  player.punchCombo = combo;
+  player.punchHand = combo === 1 ? 'left' : combo === 2 ? 'right' : 'heavy';
+  player.punchDuration = 0.28;
+  player.punchTimer = 0.28;
+  player.punchCooldown = 0.34;
+  player.fireCooldown = 0.34;
+  player.aimHoldTimer = 0.45;
+  if (state.nightlife && state.nightlife.dancing) {
+    state.nightlife.dancing = false;
+  }
+
+  const camYaw = state.camera && typeof state.camera.yaw === 'number' ? state.camera.yaw : player.angle;
+  player.angle = camYaw;
+  const cosA = Math.cos(player.angle);
+  const sinA = Math.sin(player.angle);
+
+  // Crisp forward boxing step lunge
+  player.vx += cosA * 38;
+  player.vy += sinA * 38;
+
+  if (state.audio && state.audio.playMeleeSwing) {
+    state.audio.playMeleeSwing(combo, player.x, player.y);
+  }
+
+  const range = 36;
+  const damage = combo === 3 ? 42 : 28;
+  let bestNpc = null;
+  let bestNpcDist = Infinity;
+
+  if (pedestrians) {
+    for (const npc of pedestrians) {
+      if (npc.dead || npc.inCar) continue;
+      const dx = npc.x - player.x;
+      const dy = npc.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > range) continue;
+      if (Math.abs((npc.z || 0) - (player.z || 0)) > 20) continue;
+      const dot = dist > 0.01 ? (dx * cosA + dy * sinA) / dist : 1;
+      if (dist < 11 || dot > 0.35) {
+        if (dist < bestNpcDist) {
+          bestNpcDist = dist;
+          bestNpc = npc;
+        }
+      }
+    }
+  }
+
+  if (bestNpc) {
+    const isHeavy = combo === 3;
+    const willDie = bestNpc.hp - damage <= 0;
+    bestNpc.shoveTimer = isHeavy ? 0.48 : 0.36;
+    bestNpc.vx = cosA * (isHeavy ? 135 : 92);
+    bestNpc.vy = sinA * (isHeavy ? 135 : 92);
+    bestNpc.vz = isHeavy ? 30 : 18;
+
+    damagePedestrian(state, bestNpc, damage, cosA * 115, sinA * 115);
+
+    if (state.audio && state.audio.playMeleeHit) {
+      state.audio.playMeleeHit(isHeavy, bestNpc.x, bestNpc.y);
+    }
+    if (particles) {
+      for (let k = 0; k < 5; k++) {
+        particles.push({
+          x: bestNpc.x + (Math.random() - 0.5) * 6,
+          y: bestNpc.y + (Math.random() - 0.5) * 6,
+          z: (bestNpc.z || 0) + 11 + Math.random() * 4,
+          vx: cosA * 38 + (Math.random() - 0.5) * 45,
+          vy: sinA * 38 + (Math.random() - 0.5) * 45,
+          vz: 14 + Math.random() * 18,
+          size: 3.0,
+          color: '#dfd5c6',
+          life: 0.28,
+          maxLife: 0.28,
+          kind: 'smoke'
+        });
+      }
+    }
+    if (state.camera) {
+      state.camera.hitMarkerTimer = 0.17;
+      state.camera.hitMarkerCrit = willDie;
+      state.camera.trauma = Math.min(1, (state.camera.trauma || 0) + (isHeavy ? 0.14 : 0.08));
+    }
+    addCrimeHeat(state, bestNpc.role === 'police' ? 58 : 22, 'MELEE ASSAULT REPORTED');
+    return true;
+  }
+
+  // Check melee strike against nearby vehicles
+  if (vehicles) {
+    let bestVeh = null;
+    let bestVehDist = Infinity;
+    for (const v of vehicles) {
+      if (v.destroyed) continue;
+      const dx = v.x - player.x;
+      const dy = v.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      const effDist = dist - Math.max(v.width || 24, v.length || 50) * 0.45;
+      if (effDist > range) continue;
+      const dot = dist > 0.01 ? (dx * cosA + dy * sinA) / dist : 1;
+      if (effDist < 12 || dot > 0.35) {
+        if (effDist < bestVehDist) {
+          bestVehDist = effDist;
+          bestVeh = v;
+        }
+      }
+    }
+    if (bestVeh) {
+      bestVeh.hp = Math.max(15, bestVeh.hp - 14);
+      bestVeh.suspVel = (bestVeh.suspVel || 0) + 5;
+      const hitX = player.x + cosA * 18;
+      const hitY = player.y + sinA * 18;
+      if (state.audio && state.audio.playMeleeHit) {
+        state.audio.playMeleeHit(false, hitX, hitY);
+      }
+      if (particles) {
+        for (let k = 0; k < 4; k++) {
+          particles.push({
+            x: hitX,
+            y: hitY,
+            z: (player.z || 0) + 10,
+            vx: (Math.random() - 0.5) * 65,
+            vy: (Math.random() - 0.5) * 65,
+            vz: 18 + Math.random() * 20,
+            size: 2.2,
+            color: '#f2ca78',
+            life: 0.2,
+            maxLife: 0.2,
+            kind: 'spark'
+          });
+        }
+      }
+      if (state.camera) {
+        state.camera.hitMarkerTimer = 0.14;
+        state.camera.hitMarkerCrit = false;
+        state.camera.trauma = Math.min(1, (state.camera.trauma || 0) + 0.07);
+      }
+      return true;
+    }
+  }
+
+  return true;
+}
+
 export function updatePlayerOnFoot(state, dt) {
   const { player, input, cityMap } = state;
   const cam = state.camera;
   player.fireCooldown = Math.max(0, player.fireCooldown - dt);
+  player.punchCooldown = Math.max(0, (player.punchCooldown || 0) - dt);
+  player.punchTimer = Math.max(0, (player.punchTimer || 0) - dt);
   player.muzzleTimer = Math.max(0, player.muzzleTimer - dt);
   player.dashCooldown = Math.max(0, player.dashCooldown - dt);
   player.aimHoldTimer = Math.max(0, (player.aimHoldTimer || 0) - dt);
@@ -243,11 +485,17 @@ export function updatePlayerOnFoot(state, dt) {
     cam.hitMarkerTimer = Math.max(0, (cam.hitMarkerTimer || 0) - dt);
     cam.damageFlash = Math.max(0, (cam.damageFlash || 0) - 2.4 * dt);
     cam.explosionFlash = Math.max(0, (cam.explosionFlash || 0) - 3.2 * dt);
-    const targetAim = cam.aiming && !player.vehicle ? 1 : 0;
+    const targetAim = cam.aiming && !player.vehicle && (player.reloadTimer || 0) <= 0 ? 1 : 0;
     cam.aimBlend = (cam.aimBlend || 0) + (targetAim - (cam.aimBlend || 0)) * Math.min(1, 14 * dt);
   }
 
-  if (player.vehicle) return;
+  if (player.vehicle) {
+    if ((player.reloadTimer || 0) > 0) {
+      player.reloadTimer = 0;
+      player.reloadingWeaponId = null;
+    }
+    return;
+  }
 
   const modalOpen = Boolean(
     (state.shopModal && state.shopModal.open) ||
@@ -268,6 +516,13 @@ export function updatePlayerOnFoot(state, dt) {
       player.grounded = true;
     }
     return;
+  }
+
+  if ((player.reloadTimer || 0) > 0) {
+    player.reloadTimer = Math.max(0, player.reloadTimer - dt);
+    if (player.reloadTimer <= 0) {
+      completeWeaponReload(state);
+    }
   }
 
   // Camera-relative WASD axes
@@ -460,6 +715,8 @@ export function updatePlayerOnFoot(state, dt) {
 export function firePlayerWeapon(state) {
   const { player, projectiles, particles } = state;
   if (
+    state.paused ||
+    state.startScreenOpen ||
     (state.shopModal && state.shopModal.open) ||
     state.safehouseModalOpen ||
     (state.nightlife &&
@@ -467,26 +724,52 @@ export function firePlayerWeapon(state) {
   ) {
     return false;
   }
+
+  const weapon = WEAPONS[player.weaponIndex] || WEAPONS[1];
+  if (weapon.isMelee) {
+    if (player.vehicle) return false;
+    return performMeleePunch(state);
+  }
+
+  if ((player.reloadTimer || 0) > 0) return false;
   if (player.fireCooldown > 0) return false;
 
-  const weapon = WEAPONS[player.weaponIndex] || WEAPONS[0];
   if (!player.weaponAmmo) {
     player.weaponAmmo = createInitialWeaponAmmo();
   }
-  const currentAmmo = player.weaponAmmo[weapon.id] ?? weapon.ammo;
-  if (currentAmmo <= 0) {
-    player.fireCooldown = 0.35;
-    state.hudBanner = {
-      title: `${weapon.shortName} OUT OF AMMO`,
-      subtitle: 'VISIT VICE ARMORY • GUNS & GEAR TO RESTOCK [E]',
-      color: '#d97c5b',
-      timer: 2.2
-    };
-    if (state.audio && state.audio.playErrorTone) state.audio.playErrorTone();
-    return false;
+  if (!player.weaponMag) {
+    player.weaponMag = createInitialWeaponMag();
   }
 
-  player.weaponAmmo[weapon.id] = Math.max(0, currentAmmo - 1);
+  const curMag = player.weaponMag[weapon.id] ?? 0;
+  const reserve = player.weaponAmmo[weapon.id] ?? 0;
+
+  if (curMag <= 0) {
+    if (reserve > 0 && !player.vehicle) {
+      startWeaponReload(state);
+      return false;
+    }
+    if (reserve > 0 && player.vehicle) {
+      // Drive-by quick chamber from reserve if inside vehicle
+      const load = Math.min(weapon.magSize, reserve);
+      player.weaponMag[weapon.id] = load;
+      player.weaponAmmo[weapon.id] = reserve - load;
+    } else {
+      player.fireCooldown = 0.35;
+      state.hudBanner = {
+        title: `${weapon.shortName} OUT OF AMMO`,
+        subtitle: 'VISIT VICE ARMORY • GUNS & GEAR TO RESTOCK [E]',
+        color: '#d97c5b',
+        timer: 2.2
+      };
+      if (state.audio && state.audio.playDryFire) state.audio.playDryFire(player.x, player.y);
+      else if (state.audio && state.audio.playErrorTone) state.audio.playErrorTone();
+      return false;
+    }
+  }
+
+  const activeMag = player.weaponMag[weapon.id] ?? 0;
+  player.weaponMag[weapon.id] = Math.max(0, activeMag - 1);
   player.fireCooldown = weapon.fireRate;
   player.muzzleTimer = 0.09;
   player.aimHoldTimer = 0.9;
@@ -588,6 +871,11 @@ export function firePlayerWeapon(state) {
   }
 
   if (state.audio) state.audio.playShot(weapon.id, ox, oy);
+
+  // Auto-reload cleanly when magazine empties and reserve ammo remains
+  if (player.weaponMag[weapon.id] <= 0 && (player.weaponAmmo[weapon.id] || 0) > 0 && !player.vehicle) {
+    startWeaponReload(state);
+  }
   return true;
 }
 

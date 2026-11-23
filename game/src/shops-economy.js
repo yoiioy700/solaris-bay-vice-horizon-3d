@@ -46,7 +46,8 @@ export const PLAYER_OUTFITS = {
 };
 
 export const MAX_WEAPON_AMMO = {
-  pistol: 999,
+  fists: Infinity,
+  pistol: 360,
   smg: 600,
   shotgun: 160,
   carbine: 450,
@@ -274,9 +275,17 @@ export const SHOP_CATALOG = {
 export function createInitialWeaponAmmo() {
   const ammo = {};
   for (const w of WEAPONS) {
-    ammo[w.id] = w.ammo;
+    ammo[w.id] = w.isMelee ? Infinity : w.ammo;
   }
   return ammo;
+}
+
+export function createInitialWeaponMag() {
+  const mag = {};
+  for (const w of WEAPONS) {
+    mag[w.id] = w.magSize || 0;
+  }
+  return mag;
 }
 
 export function applyPlayerOutfit(player, outfitId) {
@@ -814,16 +823,32 @@ export function purchaseShopItem(state, itemIndex) {
   }
   if (item.ammoGrant) {
     if (!player.weaponAmmo) player.weaponAmmo = createInitialWeaponAmmo();
+    if (!player.weaponMag) player.weaponMag = createInitialWeaponMag();
     for (const [wId, qty] of Object.entries(item.ammoGrant)) {
-      const cap = MAX_WEAPON_AMMO[wId] || 999;
+      const cap = MAX_WEAPON_AMMO[wId] || 360;
       player.weaponAmmo[wId] = Math.min(cap, (player.weaponAmmo[wId] || 0) + qty);
+      const spec = WEAPONS.find((w) => w.id === wId);
+      if (spec && spec.magSize > 0 && (player.weaponMag[wId] || 0) === 0 && player.weaponAmmo[wId] > 0) {
+        const load = Math.min(spec.magSize, player.weaponAmmo[wId]);
+        player.weaponMag[wId] = load;
+        player.weaponAmmo[wId] -= load;
+      }
     }
   }
   if (item.fullRestock) {
     if (!player.weaponAmmo) player.weaponAmmo = createInitialWeaponAmmo();
-    for (const [wId, cap] of Object.entries(MAX_WEAPON_AMMO)) {
-      player.weaponAmmo[wId] = cap;
+    if (!player.weaponMag) player.weaponMag = createInitialWeaponMag();
+    for (const w of WEAPONS) {
+      if (w.isMelee) {
+        player.weaponAmmo[w.id] = Infinity;
+        player.weaponMag[w.id] = 0;
+      } else {
+        player.weaponAmmo[w.id] = MAX_WEAPON_AMMO[w.id] || w.ammo;
+        player.weaponMag[w.id] = w.magSize;
+      }
     }
+    player.reloadTimer = 0;
+    player.reloadingWeaponId = null;
     player.armor = 100;
   }
   if (item.outfitId) {

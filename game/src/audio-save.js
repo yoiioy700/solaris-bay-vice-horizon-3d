@@ -1,6 +1,10 @@
-import { RADIO_STATIONS, STORAGE_KEY } from './config.js';
+import { RADIO_STATIONS, STORAGE_KEY, WEAPONS } from './config.js';
 import { startMissionByIndex } from './missions-story.js';
-import { applyPlayerOutfit, createInitialWeaponAmmo } from './shops-economy.js';
+import {
+  applyPlayerOutfit,
+  createInitialWeaponAmmo,
+  createInitialWeaponMag
+} from './shops-economy.js';
 
 export function createAudioController() {
   let ctx = null;
@@ -26,16 +30,20 @@ export function createAudioController() {
   let duckTimer = 0;
 
   let listenerPos = { x: 2720, y: 2050, z: 12 };
+  let paused = false;
 
   const stats = {
     engineRunning: false,
     npcHits: 0,
+    meleeHits: 0,
+    reloads: 0,
     shots: 0,
     crashes: 0,
     explosions: 0,
     footsteps: 0,
     jumps: 0,
-    muted: false
+    muted: false,
+    paused: false
   };
 
   function createNoiseBuffer(audio) {
@@ -858,7 +866,7 @@ export function createAudioController() {
   }
 
   function updateRadio(state, dt) {
-    if (!ctx || ctx.state !== 'running' || !graphReady) return;
+    if (paused || !ctx || ctx.state !== 'running' || !graphReady) return;
 
     // Seamless 124 BPM Disco / House Groove inside and around Club Eclipse
     const clubDist = Math.hypot(state.player.x - 1706, state.player.y - 1696);
@@ -973,6 +981,10 @@ export function createAudioController() {
     }
 
     if (!ctx || ctx.state !== 'running' || !graphReady) {
+      return;
+    }
+    if (paused) {
+      setPaused(true);
       return;
     }
 
@@ -1160,6 +1172,116 @@ export function createAudioController() {
     }
   }
 
+  function playMeleeSwing(combo = 1, x, y) {
+    const audio = ensureContext();
+    if (!audio || audio.state !== 'running') return;
+    try {
+      const now = audio.currentTime;
+      const dest = createSpatialNode(audio, x, y, 10, 0.08);
+      const peakFreq = combo === 3 ? 340 : 480;
+      const endFreq = combo === 3 ? 135 : 190;
+      spawnNoiseBurst(audio, dest, now, 0.14, 'bandpass', peakFreq, endFreq, 0.12, 1.3);
+    } catch {
+      // Ignore WebAudio constraints
+    }
+  }
+
+  function playMeleeHit(isHeavy = false, x, y) {
+    stats.meleeHits++;
+    const audio = ensureContext();
+    if (!audio || audio.state !== 'running') return;
+    try {
+      const now = audio.currentTime;
+      const dest = createSpatialNode(audio, x, y, 10, 0.12);
+      const thump = audio.createOscillator();
+      const tg = audio.createGain();
+      thump.type = 'sine';
+      thump.frequency.setValueAtTime(isHeavy ? 150 : 128, now);
+      thump.frequency.exponentialRampToValueAtTime(36, now + 0.13);
+      tg.gain.setValueAtTime(isHeavy ? 0.2 : 0.15, now);
+      tg.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+      thump.connect(tg);
+      tg.connect(dest);
+      thump.start(now);
+      thump.stop(now + 0.15);
+      spawnNoiseBurst(audio, dest, now, 0.09, 'lowpass', 1450, 290, isHeavy ? 0.16 : 0.12);
+    } catch {
+      // Ignore WebAudio constraints
+    }
+  }
+
+  function playReloadStart(weaponId, x, y) {
+    const audio = ensureContext();
+    if (!audio || audio.state !== 'running') return;
+    try {
+      const now = audio.currentTime;
+      const dest = createSpatialNode(audio, x, y, 10, 0.06);
+      const click = audio.createOscillator();
+      const cg = audio.createGain();
+      click.type = 'triangle';
+      click.frequency.setValueAtTime(weaponId === 'rpg' ? 320 : 680, now);
+      click.frequency.exponentialRampToValueAtTime(240, now + 0.055);
+      cg.gain.setValueAtTime(0.075, now);
+      cg.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
+      click.connect(cg);
+      cg.connect(dest);
+      click.start(now);
+      click.stop(now + 0.07);
+      spawnNoiseBurst(audio, dest, now + 0.02, 0.08, 'bandpass', 1600, 700, 0.04, 1.5);
+    } catch {
+      // Ignore WebAudio constraints
+    }
+  }
+
+  function playReloadFinish(weaponId, x, y) {
+    stats.reloads++;
+    const audio = ensureContext();
+    if (!audio || audio.state !== 'running') return;
+    try {
+      const now = audio.currentTime;
+      const dest = createSpatialNode(audio, x, y, 10, 0.08);
+      const baseFreq = weaponId === 'rpg' ? 420 : weaponId === 'shotgun' ? 620 : 880;
+      for (const offset of [0, 0.075]) {
+        const rack = audio.createOscillator();
+        const rg = audio.createGain();
+        rack.type = 'triangle';
+        rack.frequency.setValueAtTime(baseFreq * (offset > 0 ? 1.24 : 0.9), now + offset);
+        rack.frequency.exponentialRampToValueAtTime(baseFreq * 0.45, now + offset + 0.055);
+        rg.gain.setValueAtTime(0.085, now + offset);
+        rg.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.065);
+        rack.connect(rg);
+        rg.connect(dest);
+        rack.start(now + offset);
+        rack.stop(now + offset + 0.07);
+      }
+      spawnNoiseBurst(audio, dest, now + 0.05, 0.065, 'highpass', 1800, 900, 0.045);
+    } catch {
+      // Ignore WebAudio constraints
+    }
+  }
+
+  function playDryFire(x, y) {
+    const audio = ensureContext();
+    if (!audio || audio.state !== 'running') return;
+    try {
+      const now = audio.currentTime;
+      const dest = createSpatialNode(audio, x, y, 10, 0.04);
+      const pin = audio.createOscillator();
+      const pg = audio.createGain();
+      pin.type = 'square';
+      pin.frequency.setValueAtTime(1450, now);
+      pin.frequency.exponentialRampToValueAtTime(620, now + 0.025);
+      pg.gain.setValueAtTime(0.045, now);
+      pg.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+      pin.connect(pg);
+      pg.connect(dest);
+      pin.start(now);
+      pin.stop(now + 0.035);
+    } catch {
+      // Ignore WebAudio constraints
+    }
+  }
+
   function setMuted(muted) {
     stats.muted = Boolean(muted);
     if (ctx && masterGain) {
@@ -1171,11 +1293,47 @@ export function createAudioController() {
     }
   }
 
+  function toggleMute() {
+    setMuted(!stats.muted);
+    return stats.muted;
+  }
+
+  function setPaused(nextPaused) {
+    paused = Boolean(nextPaused);
+    stats.paused = paused;
+    if (!ctx || !graphReady || ctx.state !== 'running') return;
+    const now = ctx.currentTime;
+    try {
+      if (paused) {
+        if (engineNodes) {
+          engineNodes.gain.gain.setTargetAtTime(0.0001, now, 0.03);
+          engineNodes.turboGain.gain.setTargetAtTime(0.0001, now, 0.03);
+        }
+        if (screechNodes) screechNodes.gain.gain.setTargetAtTime(0.0001, now, 0.03);
+        if (ambientNodes) {
+          ambientNodes.oceanGain.gain.setTargetAtTime(0.0001, now, 0.03);
+          ambientNodes.windGain.gain.setTargetAtTime(0.0001, now, 0.03);
+        }
+        if (sirenNodes) sirenNodes.gain.gain.setTargetAtTime(0.0001, now, 0.03);
+        if (heliNodes) heliNodes.gain.gain.setTargetAtTime(0.0001, now, 0.03);
+      }
+    } catch {
+      // Ignore WebAudio scheduling edge
+    }
+  }
+
   return {
     stats,
     ensureContext,
     setMuted,
+    toggleMute,
+    setPaused,
     playShot,
+    playMeleeSwing,
+    playMeleeHit,
+    playReloadStart,
+    playReloadFinish,
+    playDryFire,
     playBulletImpact,
     playExplosion,
     playNpcHit,
@@ -1242,6 +1400,7 @@ export function saveCareerToStorage(state) {
       armor: state.player.armor,
       weaponIndex: state.player.weaponIndex,
       weaponAmmo: state.player.weaponAmmo || createInitialWeaponAmmo(),
+      weaponMag: state.player.weaponMag || createInitialWeaponMag(),
       outfitId: state.player.outfitId || 'default_coral',
       radioIndex: state.player.radioIndex,
       missionIndex: state.missions.currentIndex,
@@ -1281,7 +1440,7 @@ export function loadCareerFromStorage(state) {
       state.player.armor = Math.max(0, Math.min(100, data.armor));
     }
     if (typeof data.weaponIndex === 'number' && Number.isFinite(data.weaponIndex)) {
-      state.player.weaponIndex = Math.max(0, Math.min(4, Math.floor(data.weaponIndex)));
+      state.player.weaponIndex = Math.max(0, Math.min(WEAPONS.length - 1, Math.floor(data.weaponIndex)));
     }
     if (data.weaponAmmo && typeof data.weaponAmmo === 'object') {
       const defaults = createInitialWeaponAmmo();
@@ -1292,6 +1451,18 @@ export function loadCareerFromStorage(state) {
         }
       }
     }
+    const magDefaults = createInitialWeaponMag();
+    state.player.weaponMag = { ...magDefaults };
+    if (data.weaponMag && typeof data.weaponMag === 'object') {
+      for (const w of WEAPONS) {
+        const val = data.weaponMag[w.id];
+        if (typeof val === 'number' && Number.isFinite(val)) {
+          state.player.weaponMag[w.id] = Math.max(0, Math.min(w.magSize || 0, Math.floor(val)));
+        }
+      }
+    }
+    state.player.reloadTimer = 0;
+    state.player.reloadingWeaponId = null;
     if (typeof data.outfitId === 'string') {
       applyPlayerOutfit(state.player, data.outfitId);
     }

@@ -47,7 +47,7 @@ const dossier = buildDossier(
       'Left Shift: Nitro Afterburner (driving) or Sprint (on foot) | F or Enter: Carjack / Exit vehicle',
       'E: Open / Close Walk-In Shops, Street Carts, Club Bar, VIP Suite, or Private Car Service',
       'G: Dance on Club Eclipse Disco Floor | H: Honk Horn / Invite Nightlife Companion into Car',
-      '1 - 5 (or Q / Wheel): Switch weapons, or buy items 1-5 inside menus | R: Radio | K: Save | Tab / M: Dossier | Esc: Unlock / Close'
+      '1 - 6 (or Q / Wheel): Fists, Pistol, SMG, Shotgun, Carbine, RPG | R: Reload (on foot) / Radio (in car) | V: Quick Punch | X: Radio | P / Esc: Pause | K: Save | Tab / M: Dossier'
     ],
     verification: [
       'Hardware-accelerated Three.js r183 WebGL 2.0 renderer verified at 1280x720 with AgX filmic tone mapping (exposure 0.96), coastal PMREM IBL, 2048x2048 PCFSoftShadowMap shadows, distance culling, and zero NaN transforms across the entire scene graph.',

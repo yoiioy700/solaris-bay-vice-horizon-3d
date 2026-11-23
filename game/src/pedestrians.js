@@ -137,6 +137,16 @@ export function createPedestrian(x, y, role = 'civilian', overrides = {}) {
     hasShades,
     heightScale: isHostile ? 1.0 : 0.92 + (idNum % 5) * 0.032,
     hasWeapon: isHostile,
+    weaponId:
+      role === 'syndicate'
+        ? idNum % 3 === 0
+          ? 'carbine'
+          : 'smg'
+        : role === 'police'
+          ? idNum % 3 === 0
+            ? 'shotgun'
+            : 'pistol'
+          : 'fists',
     walkAxis: idNum % 2 === 0 ? 'y' : 'x',
     walkDir: idNum % 4 < 2 ? 1 : -1,
     homeX: x,

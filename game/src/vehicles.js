@@ -107,7 +107,7 @@ export function spawnInitialVehicles(cityMap) {
     }
   }
 
-  // 4. Lively moving metropolitan traffic including Solaris City Cabs & Delivery Vans
+  // 4. Lively, well-spaced moving metropolitan traffic across boulevards (18–20 active traffic cars)
   const trafficTypes = [
     'city_taxi',
     'eclipse_sedan',
@@ -119,28 +119,38 @@ export function spawnInitialVehicles(cityMap) {
     'apex_gt'
   ];
 
+  const trafficRoads = [896, 1216, 1536, 1856, 2176, 2496, 2720];
   let idx = 0;
-  for (const rx of cityMap.verticalRoads) {
-    for (let y = 460; y <= 2960; y += 540) {
-      if (Math.abs(rx - 2720) < 20 && Math.abs(y - 2120) < 190) continue;
+  let trafficCount = 0;
+  const maxAmbientTraffic = 19;
+
+  for (let rIdx = 0; rIdx < trafficRoads.length && trafficCount < maxAmbientTraffic; rIdx++) {
+    const rx = trafficRoads[rIdx];
+    const yStart = 440 + (rIdx % 3) * 210;
+    for (let y = yStart; y <= 2840 && trafficCount < maxAmbientTraffic; y += 780) {
+      if (Math.abs(rx - 2720) < 20 && Math.abs(y - 2120) < 230) continue;
       const tId = trafficTypes[idx % trafficTypes.length];
-      const dir = idx % 2 === 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
+      const dir = (idx + rIdx) % 2 === 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
       // Cleanly separated right-hand lanes (Ocean Drive: 2706 / 2734; inland avenues: rx ± 13)
       const laneX =
         rx === 2720 ? (dir > 0 ? 2706 : 2734) : rx + (dir > 0 ? -13 : 13);
+      const tooClose = list.some((other) => Math.hypot(other.x - laneX, other.y - y) < 185);
+      if (tooClose) {
+        idx++;
+        continue;
+      }
       const v = createVehicle(tId, laneX, y, dir, {
         aiRole: 'traffic',
         driver: 'civilian',
         roadX: rx
       });
-      v.speed = tId === 'delivery_van' ? 98 : 118;
+      v.speed = tId === 'delivery_van' ? 92 : 114;
       v.vx = Math.cos(dir) * v.speed;
       v.vy = Math.sin(dir) * v.speed;
       list.push(v);
       idx++;
-      if (list.length >= 44) break;
+      trafficCount++;
     }
-    if (list.length >= 44) break;
   }
 
   return list;
@@ -307,7 +317,7 @@ export function updateVehicles(state, dt) {
     } else if (v.isPolice && v.aiRole === 'police_pursuit') {
       // Velocity was set by updatePoliceSystem; advance via shared substepped collision below
     } else if (v.aiRole === 'traffic' && v.driver === 'civilian') {
-      updateTrafficVehicleAI(v, vehicles, player, dt);
+      updateTrafficVehicleAI(v, vehicles, player, cityMap, dt);
     } else if (v.aiRole === 'convoy') {
       updateConvoyVehicleAI(v, dt);
     } else {
@@ -529,6 +539,14 @@ export function updateVehicles(state, dt) {
     if (!anyPairHit) break;
   }
 
+  // Hard post-OBB anti-beach safeguard: guarantee zero AI traffic cars ever sit or drive on boardwalk/beach
+  for (const v of vehicles) {
+    if (v.destroyed || v.aiRole !== 'traffic' || player.vehicle === v) continue;
+    if (isTrafficVehicleOnBeachOrBoardwalk(v)) {
+      rescueTrafficOffBeach(v, vehicles, player, cityMap);
+    }
+  }
+
   // Sync player world position to active vehicle
   if (player.vehicle) {
     player.x = player.vehicle.x;
@@ -693,7 +711,99 @@ function updatePlayerDrivenVehicle(state, v, input, dt) {
   }
 }
 
-function updateTrafficVehicleAI(v, vehicles, player, dt) {
+function isTrafficVehicleOnBeachOrBoardwalk(v) {
+  if (!v) return false;
+  if (v.x > 2758 && v.x < 3160) {
+    const onCauseway = Math.abs(v.y - 896) < 42 || Math.abs(v.y - 1856) < 42;
+    return !onCauseway;
+  }
+  return false;
+}
+
+function getTrafficLaneX(roadX, dir) {
+  const isSouth = Math.sin(dir) > 0;
+  return roadX === 2720 ? (isSouth ? 2706 : 2734) : roadX + (isSouth ? -13 : 13);
+}
+
+function hasVehicleClearance(vehicles, player, self, x, y, minDist = 165) {
+  if (player && Math.hypot(player.x - x, player.y - y) < minDist) return false;
+  for (const other of vehicles) {
+    if (other === self || other.destroyed) continue;
+    if (Math.hypot(other.x - x, other.y - y) < minDist) return false;
+  }
+  return true;
+}
+
+function getNearbyTrafficAvenues(playerX, cityMap) {
+  if (playerX > 3050 && cityMap && cityMap.islandVerticalRoads) {
+    return cityMap.islandVerticalRoads;
+  }
+  const all =
+    cityMap && cityMap.verticalRoads
+      ? cityMap.verticalRoads.filter((rx) => rx >= 576 && rx <= 2720)
+      : [1536, 1856, 2176, 2496, 2720];
+  return [...all].sort((a, b) => Math.abs(a - playerX) - Math.abs(b - playerX)).slice(0, 4);
+}
+
+function tryRelocateTrafficCleanly(v, vehicles, player, cityMap, avenues, minClearance = 165) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const rx = avenues[(attempt + Math.floor(Math.random() * avenues.length)) % avenues.length];
+    const dir = Math.random() < 0.5 ? Math.PI * 0.5 : -Math.PI * 0.5;
+    const candX = getTrafficLaneX(rx, dir);
+    const maxY = rx > 3000 ? 1950 : 4580;
+    const minY = rx > 3000 ? 540 : 340;
+    const ySign = attempt % 2 === 0 ? 1 : -1;
+    const candY = Math.max(
+      minY,
+      Math.min(maxY, player.y + ySign * (360 + Math.random() * 540))
+    );
+    if (hasVehicleClearance(vehicles, player, v, candX, candY, minClearance)) {
+      v.roadX = rx;
+      v.angle = dir;
+      v.x = candX;
+      v.y = candY;
+      v.speed = v.isCommercialVan ? 92 : 112;
+      v.vx = Math.cos(dir) * v.speed;
+      v.vy = Math.sin(dir) * v.speed;
+      return true;
+    }
+  }
+  return false;
+}
+
+function rescueTrafficOffBeach(v, vehicles, player, cityMap) {
+  const mainlandAves = [2496, 2176, 1856, 2720, 1536];
+  if (tryRelocateTrafficCleanly(v, vehicles, player, cityMap, mainlandAves, 165)) {
+    return true;
+  }
+  // Hard fallback: never remain on boardwalk/beach; place on clearest inland lane stopped
+  for (const rx of [2496, 2176, 1856, 1536]) {
+    const dir = -Math.PI * 0.5;
+    const candX = getTrafficLaneX(rx, dir);
+    for (const offY of [-520, 520, -820, 820, -280, 280]) {
+      const candY = Math.max(360, Math.min(4500, player.y + offY));
+      if (hasVehicleClearance(vehicles, player, v, candX, candY, 88)) {
+        v.roadX = rx;
+        v.angle = dir;
+        v.x = candX;
+        v.y = candY;
+        v.speed = 0;
+        v.vx = 0;
+        v.vy = 0;
+        return true;
+      }
+    }
+  }
+  v.roadX = 2496;
+  v.angle = -Math.PI * 0.5;
+  v.x = getTrafficLaneX(2496, v.angle);
+  v.speed = 0;
+  v.vx = 0;
+  v.vy = 0;
+  return true;
+}
+
+function updateTrafficVehicleAI(v, vehicles, player, cityMap, dt) {
   const cos = Math.cos(v.angle);
   const sin = Math.sin(v.angle);
   let blocked = false;
@@ -702,20 +812,20 @@ function updateTrafficVehicleAI(v, vehicles, player, dt) {
   const pdx = player.x - v.x;
   const pdy = player.y - v.y;
   const pDist = Math.hypot(pdx, pdy);
-  if (pDist < 115 && (pdx * cos + pdy * sin) / (pDist || 1) > 0.78) {
+  if (pDist < 120 && (pdx * cos + pdy * sin) / (pDist || 1) > 0.72) {
     blocked = true;
   }
 
-  // Lookahead spacing against other vehicles directly ahead in same lane (prevents traffic pileups!)
+  // Lookahead spacing against all vehicles ahead in or crossing the lane
   if (!blocked) {
     for (const other of vehicles) {
       if (other === v || other.destroyed) continue;
       const odx = other.x - v.x;
       const ody = other.y - v.y;
       const forward = odx * cos + ody * sin;
-      if (forward > 12 && forward < 92) {
+      if (forward > 8 && forward < 105) {
         const lateral = Math.abs(-odx * sin + ody * cos);
-        if (lateral < 18) {
+        if (lateral < 20) {
           blocked = true;
           break;
         }
@@ -723,35 +833,56 @@ function updateTrafficVehicleAI(v, vehicles, player, dt) {
     }
   }
 
-  const targetSpeed = blocked ? 8 : v.isCommercialVan ? 96 : 118;
-  v.speed += (targetSpeed - v.speed) * Math.min(1, 3.8 * dt);
-  v.vx = cos * v.speed;
-  v.vy = sin * v.speed;
+  const targetSpeed = blocked ? 0 : v.isCommercialVan ? 92 : 114;
+  const rate = blocked ? 5.8 : 3.4;
+  v.speed += (targetSpeed - v.speed) * Math.min(1, rate * dt);
+  if (blocked && v.speed < 2.5) {
+    v.speed = 0;
+    v.vx = 0;
+    v.vy = 0;
+  } else {
+    v.vx = Math.cos(v.angle) * v.speed;
+    v.vy = Math.sin(v.angle) * v.speed;
+  }
   v.rpm = Math.min(0.75, 0.22 + (v.speed / v.maxSpeed) * 0.55);
 
-  // Smooth U-turn at boulevard ends across expanded 5200x5120 city + smart traffic streaming near player
-  const rx = v.roadX || 1856;
+  // Gentle lane-keeping lateral restoring force so moving AI traffic stays centered in its lane
+  const rx = v.roadX || 2176;
+  const isSouth = Math.sin(v.angle) >= 0;
+  const targetDir = isSouth ? Math.PI * 0.5 : -Math.PI * 0.5;
+  const laneX = getTrafficLaneX(rx, targetDir);
+  if (v.speed > 4 && Math.abs(Math.sin(v.angle)) > 0.65) {
+    v.x += (laneX - v.x) * Math.min(1, 2.4 * dt);
+    let angDiff = ((targetDir - v.angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    v.angle += angDiff * Math.min(1, 3.2 * dt);
+    v.steerAngle = Math.max(-0.25, Math.min(0.25, angDiff));
+  } else {
+    v.steerAngle *= Math.exp(-6 * dt);
+  }
+
+  // Smooth U-turn at boulevard ends across expanded 5200x5120 city
   if (v.y > 4720) {
     v.angle = -Math.PI * 0.5;
     v.y = 4700;
-    v.x = rx === 2720 ? 2734 : rx + 13;
+    v.x = getTrafficLaneX(rx, v.angle);
   } else if (v.y < 250) {
     v.angle = Math.PI * 0.5;
     v.y = 260;
-    v.x = rx === 2720 ? 2706 : rx - 13;
+    v.x = getTrafficLaneX(rx, v.angle);
   }
-  if (pDist > 1250 && v.aiRole === 'traffic') {
-    const targetRoad =
-      player.x > 3050 ? 3320 : Math.min(2720, Math.max(576, Math.round(player.x / 320) * 320));
-    const clampedRoad = Math.abs(targetRoad - 2720) < 120 ? 2720 : targetRoad;
-    const dir = Math.random() < 0.5 ? Math.PI * 0.5 : -Math.PI * 0.5;
-    v.roadX = clampedRoad;
-    v.angle = dir;
-    v.x = clampedRoad === 2720 ? (dir > 0 ? 2706 : 2734) : clampedRoad + (dir > 0 ? -13 : 13);
-    const maxY = clampedRoad > 3000 ? 1950 : 4640;
-    const minY = clampedRoad > 3000 ? 540 : 320;
-    v.y = Math.max(minY, Math.min(maxY, player.y + (dir > 0 ? -420 : 420)));
+
+  // Anti-beach safeguard before streaming check
+  if (v.aiRole === 'traffic' && isTrafficVehicleOnBeachOrBoardwalk(v)) {
+    rescueTrafficOffBeach(v, vehicles, player, cityMap);
+    return;
   }
+
+  // Smart multi-avenue traffic streaming with strict >=165 spacing check
+  if (pDist > 1350 && v.aiRole === 'traffic') {
+    const avenues = getNearbyTrafficAvenues(player.x, cityMap);
+    tryRelocateTrafficCleanly(v, vehicles, player, cityMap, avenues, 165);
+  }
+
   if (v.x > 3820) {
     v.angle = Math.PI;
     v.x = 3810;

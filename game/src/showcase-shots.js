@@ -182,7 +182,10 @@ export function applyShowcaseShotIfRequested(state) {
     player.z = 0;
     player.grounded = true;
     player.angle = -Math.PI * 0.46;
-    player.weaponIndex = 1; // Spectre Micro-SMG
+    player.weaponIndex = 2; // Spectre Micro-SMG
+    if (player.weaponMag) player.weaponMag.smg = 32;
+    if (player.weaponAmmo) player.weaponAmmo.smg = 256;
+    player.reloadTimer = 0;
     player.muzzleTimer = 0.09;
     player.aimHoldTimer = 0.9;
     player.cash = 164200;
@@ -291,7 +294,10 @@ export function applyShowcaseShotIfRequested(state) {
     player.z = 0;
     player.grounded = true;
     player.angle = -Math.PI * 0.48;
-    player.weaponIndex = 4; // Titan AT-4 RPG Launcher
+    player.weaponIndex = 5; // Titan AT-4 RPG Launcher
+    if (player.weaponMag) player.weaponMag.rpg = 1;
+    if (player.weaponAmmo) player.weaponAmmo.rpg = 8;
+    player.reloadTimer = 0;
     player.muzzleTimer = 0.09;
     player.cash = 248000;
 

@@ -8,6 +8,9 @@ import {
   updatePlayerOnFoot,
   updateCombatAndProjectiles,
   firePlayerWeapon,
+  switchPlayerWeapon,
+  startWeaponReload,
+  performMeleePunch,
   computeAimRay
 } from './combat-weapons.js';
 import {
@@ -19,6 +22,7 @@ import {
 } from './audio-save.js';
 import {
   createInitialWeaponAmmo,
+  createInitialWeaponMag,
   createShopModalState,
   applyPlayerOutfit,
   toggleNearbyShop,
@@ -42,7 +46,7 @@ import {
   updateNightlifeSystem
 } from './nightlife-romance.js';
 import { createWorldRenderer3D } from './render-world.js';
-import { renderHud2D, getStartScreenLayout } from './render-hud.js';
+import { renderHud2D, getStartScreenLayout, getPauseMenuLayout } from './render-hud.js';
 import { applyShowcaseShotIfRequested } from './showcase-shots.js';
 
 const webglCanvas = document.getElementById('webgl-canvas');
@@ -95,6 +99,8 @@ function isAnyModalOpen(st) {
 
 const state = {
   time: 0,
+  paused: false,
+  pauseHover: null,
   startScreenOpen: true,
   startScreenHover: null,
   hasSavedCareer: hasSavedCareer(),
@@ -117,6 +123,14 @@ const state = {
     cash: 42500,
     weaponIndex: 1,
     weaponAmmo: createInitialWeaponAmmo(),
+    weaponMag: createInitialWeaponMag(),
+    reloadTimer: 0,
+    reloadingWeaponId: null,
+    punchTimer: 0,
+    punchDuration: 0.28,
+    punchHand: 'right',
+    punchCombo: 0,
+    punchCooldown: 0,
     outfitId: 'default_coral',
     jacketColor: '#b55649',
     shirtColor: '#d8d1c5',
@@ -185,12 +199,44 @@ const state = {
   audio: createAudioController()
 };
 
+function setPaused(paused) {
+  const next = Boolean(paused);
+  if (next === state.paused) return;
+  state.paused = next;
+  state.pauseHover = null;
+  if (next) {
+    state.input.keys = {};
+    state.input.mouseDown = false;
+    state.camera.aiming = false;
+    exitPointerLockSafe();
+    if (state.audio && state.audio.setPaused) state.audio.setPaused(true);
+  } else {
+    if (state.audio && state.audio.setPaused) state.audio.setPaused(false);
+  }
+}
+
+function returnToTitleScreen() {
+  setPaused(false);
+  state.startScreenOpen = true;
+  state.startScreenHover = null;
+  state.safehouseModalOpen = false;
+  closeShopModal(state);
+  closeNightlifeMenus(state);
+  state.input.keys = {};
+  state.input.mouseDown = false;
+  state.camera.aiming = false;
+  state.audio.stats.engineRunning = false;
+  if (state.audio && state.audio.setPaused) state.audio.setPaused(true);
+}
+
 function resetToNewGame(clearSave = true) {
   if (clearSave) {
     clearCareerStorage();
     state.hasSavedCareer = false;
   }
 
+  state.paused = false;
+  state.pauseHover = null;
   state.vehicles = spawnInitialVehicles(cityMap);
   state.vehicles[0].driver = 'player';
   state.pedestrians = spawnInitialPedestrians(cityMap);
@@ -225,6 +271,14 @@ function resetToNewGame(clearSave = true) {
     cash: 42500,
     weaponIndex: 1,
     weaponAmmo: createInitialWeaponAmmo(),
+    weaponMag: createInitialWeaponMag(),
+    reloadTimer: 0,
+    reloadingWeaponId: null,
+    punchTimer: 0,
+    punchDuration: 0.28,
+    punchHand: 'right',
+    punchCombo: 0,
+    punchCooldown: 0,
     radioIndex: 0,
     vehicle: heroCar,
     walkPhase: 0,
@@ -267,6 +321,7 @@ function resetToNewGame(clearSave = true) {
   };
 
   state.audio.ensureContext();
+  if (state.audio.setPaused) state.audio.setPaused(false);
   if (state.player.vehicle) {
     state.audio.onVehicleEnter(state.player.vehicle);
   }
@@ -275,6 +330,8 @@ function resetToNewGame(clearSave = true) {
 function continueSavedCareer() {
   if (!hasSavedCareer()) return false;
   loadCareerFromStorage(state);
+  state.paused = false;
+  state.pauseHover = null;
   state.hasSavedCareer = true;
   state.startScreenOpen = false;
   state.startScreenHover = null;
@@ -288,6 +345,7 @@ function continueSavedCareer() {
     timer: 3.0
   };
   state.audio.ensureContext();
+  if (state.audio.setPaused) state.audio.setPaused(false);
   if (state.player.vehicle) {
     state.audio.onVehicleEnter(state.player.vehicle);
   }
@@ -315,9 +373,22 @@ if (!activeShot) {
   computeAimRay(state);
 }
 
+let wasPointerLocked = false;
 if (typeof document !== 'undefined') {
   document.addEventListener('pointerlockchange', () => {
-    document.body.classList.toggle('pointer-locked', document.pointerLockElement === webglCanvas);
+    const locked = document.pointerLockElement === webglCanvas;
+    document.body.classList.toggle('pointer-locked', locked);
+    if (
+      wasPointerLocked &&
+      !locked &&
+      !isAnyModalOpen(state) &&
+      !state.startScreenOpen &&
+      !activeShot &&
+      !state.paused
+    ) {
+      setPaused(true);
+    }
+    wasPointerLocked = locked;
   });
 }
 
@@ -329,11 +400,11 @@ window.addEventListener('blur', () => {
 });
 
 window.addEventListener('keydown', (e) => {
-  state.input.keys[e.code] = true;
   state.audio.ensureContext();
 
   // Start / Title Screen keyboard shortcuts ([Enter] New Game, [C] Continue Career)
   if (state.startScreenOpen) {
+    state.input.keys[e.code] = true;
     if (e.code === 'Enter') {
       e.preventDefault();
       resetToNewGame(true);
@@ -343,6 +414,27 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
+
+  // Pause Menu controls ([P / ESC] Resume, [K] Save, [U] Audio Mute, [N] New Game, [T] Title Screen)
+  if (state.paused) {
+    if (e.code === 'KeyP' || e.code === 'Escape') {
+      e.preventDefault();
+      setPaused(false);
+    } else if (e.code === 'KeyK') {
+      if (saveCareerToStorage(state)) {
+        state.hasSavedCareer = true;
+      }
+    } else if (e.code === 'KeyU') {
+      if (state.audio && state.audio.toggleMute) state.audio.toggleMute();
+    } else if (e.code === 'KeyN') {
+      resetToNewGame(true);
+    } else if (e.code === 'KeyT') {
+      returnToTitleScreen();
+    }
+    return;
+  }
+
+  state.input.keys[e.code] = true;
 
   // Active VIP Suite or Car Sex session controls ([SPACE] rhythm boost, [ESC] finish early)
   if (state.nightlife.session) {
@@ -356,15 +448,43 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.code === 'Escape') {
-    if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
+    if (state.paused) {
+    const layout = getPauseMenuLayout();
+    const rects = [
+      layout.resumeRect,
+      layout.saveRect,
+      layout.audioRect,
+      layout.newGameRect,
+      layout.titleRect
+    ];
+    let hovered = null;
+    for (const r of rects) {
+      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+        hovered = r.id;
+        break;
+      }
+    }
+    state.pauseHover = hovered;
+    return;
+  }
+
+  if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
       closeNightlifeMenus(state);
     } else if (state.shopModal.open) {
       closeShopModal(state);
     } else if (state.safehouseModalOpen) {
       state.safehouseModalOpen = false;
+    } else if (!activeShot) {
+      setPaused(true);
     }
     state.camera.aiming = false;
     exitPointerLockSafe();
+    return;
+  }
+
+  if (e.code === 'KeyP' && !isAnyModalOpen(state) && !activeShot) {
+    e.preventDefault();
+    setPaused(true);
     return;
   }
 
@@ -378,7 +498,27 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.code === 'KeyE') {
-    if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
+    if (state.paused) {
+    const layout = getPauseMenuLayout();
+    const rects = [
+      layout.resumeRect,
+      layout.saveRect,
+      layout.audioRect,
+      layout.newGameRect,
+      layout.titleRect
+    ];
+    let hovered = null;
+    for (const r of rects) {
+      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+        hovered = r.id;
+        break;
+      }
+    }
+    state.pauseHover = hovered;
+    return;
+  }
+
+  if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
       closeNightlifeMenus(state);
       return;
     }
@@ -432,6 +572,26 @@ window.addEventListener('keydown', (e) => {
   }
 
   // While VIP / Car Service menu is open, Digit1..Digit2 trigger service options cleanly
+  if (state.paused) {
+    const layout = getPauseMenuLayout();
+    const rects = [
+      layout.resumeRect,
+      layout.saveRect,
+      layout.audioRect,
+      layout.newGameRect,
+      layout.titleRect
+    ];
+    let hovered = null;
+    for (const r of rects) {
+      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+        hovered = r.id;
+        break;
+      }
+    }
+    state.pauseHover = hovered;
+    return;
+  }
+
   if (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen) {
     if (e.code.startsWith('Digit')) {
       const num = Number(e.code.replace('Digit', ''));
@@ -461,15 +621,24 @@ window.addEventListener('keydown', (e) => {
       state.camera.aiming = false;
       state.camera.orbitIdleTimer = 2.0;
     }
-  } else if (e.code === 'KeyR') {
+  } else if (e.code === 'KeyX') {
     state.player.radioIndex = (state.player.radioIndex + 1) % RADIO_STATIONS.length;
+  } else if (e.code === 'KeyR') {
+    if (state.player.vehicle) {
+      state.player.radioIndex = (state.player.radioIndex + 1) % RADIO_STATIONS.length;
+    } else {
+      startWeaponReload(state);
+    }
+  } else if (e.code === 'KeyV') {
+    if (!state.player.vehicle) {
+      performMeleePunch(state);
+    }
   } else if (e.code === 'KeyQ') {
-    state.player.weaponIndex =
-      (state.player.weaponIndex + WEAPONS.length - 1) % WEAPONS.length;
+    switchPlayerWeapon(state, state.player.weaponIndex + WEAPONS.length - 1);
   } else if (e.code.startsWith('Digit')) {
     const num = Number(e.code.replace('Digit', ''));
     if (num >= 1 && num <= WEAPONS.length) {
-      state.player.weaponIndex = num - 1;
+      switchPlayerWeapon(state, num - 1);
     }
   }
 });
@@ -508,6 +677,26 @@ window.addEventListener('mousemove', (e) => {
     } else {
       state.startScreenHover = null;
     }
+    return;
+  }
+
+  if (state.paused) {
+    const layout = getPauseMenuLayout();
+    const rects = [
+      layout.resumeRect,
+      layout.saveRect,
+      layout.audioRect,
+      layout.newGameRect,
+      layout.titleRect
+    ];
+    let hovered = null;
+    for (const r of rects) {
+      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+        hovered = r.id;
+        break;
+      }
+    }
+    state.pauseHover = hovered;
     return;
   }
 
@@ -566,6 +755,24 @@ webglCanvas.addEventListener('mousedown', (e) => {
     return;
   }
 
+  if (state.paused) {
+    if (e.button !== 0) return;
+    const layout = getPauseMenuLayout();
+    const hit = (r) => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
+    if (hit(layout.resumeRect)) {
+      setPaused(false);
+    } else if (hit(layout.saveRect)) {
+      if (saveCareerToStorage(state)) state.hasSavedCareer = true;
+    } else if (hit(layout.audioRect)) {
+      if (state.audio && state.audio.toggleMute) state.audio.toggleMute();
+    } else if (hit(layout.newGameRect)) {
+      resetToNewGame(true);
+    } else if (hit(layout.titleRect)) {
+      returnToTitleScreen();
+    }
+    return;
+  }
+
   if (e.button === 2) {
     e.preventDefault();
     if (!isAnyModalOpen(state) && !state.player.vehicle) {
@@ -578,6 +785,26 @@ webglCanvas.addEventListener('mousedown', (e) => {
 
   if (state.nightlife.session) {
     boostNightlifeRhythm(state);
+    return;
+  }
+
+  if (state.paused) {
+    const layout = getPauseMenuLayout();
+    const rects = [
+      layout.resumeRect,
+      layout.saveRect,
+      layout.audioRect,
+      layout.newGameRect,
+      layout.titleRect
+    ];
+    let hovered = null;
+    for (const r of rects) {
+      if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+        hovered = r.id;
+        break;
+      }
+    }
+    state.pauseHover = hovered;
     return;
   }
 
@@ -610,6 +837,24 @@ webglCanvas.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mouseup', (e) => {
+  if (state.paused) {
+    if (e.button !== 0) return;
+    const layout = getPauseMenuLayout();
+    const hit = (r) => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
+    if (hit(layout.resumeRect)) {
+      setPaused(false);
+    } else if (hit(layout.saveRect)) {
+      if (saveCareerToStorage(state)) state.hasSavedCareer = true;
+    } else if (hit(layout.audioRect)) {
+      if (state.audio && state.audio.toggleMute) state.audio.toggleMute();
+    } else if (hit(layout.newGameRect)) {
+      resetToNewGame(true);
+    } else if (hit(layout.titleRect)) {
+      returnToTitleScreen();
+    }
+    return;
+  }
+
   if (e.button === 2) {
     state.camera.aiming = false;
   } else if (e.button === 0) {
@@ -620,10 +865,10 @@ window.addEventListener('mouseup', (e) => {
 webglCanvas.addEventListener(
   'wheel',
   (e) => {
-    if (isAnyModalOpen(state) || state.player.vehicle) return;
+    if (state.paused || isAnyModalOpen(state) || state.player.vehicle) return;
     if (Math.abs(e.deltaY) < 2) return;
     const step = e.deltaY > 0 ? 1 : WEAPONS.length - 1;
-    state.player.weaponIndex = (state.player.weaponIndex + step) % WEAPONS.length;
+    switchPlayerWeapon(state, state.player.weaponIndex + step);
   },
   { passive: true }
 );
@@ -635,44 +880,46 @@ function frame(now) {
   lastTime = now;
 
   if (!activeShot) {
-    state.time += rawDt;
+    if (!state.paused) {
+      state.time += rawDt;
 
-    if (state.startScreenOpen) {
-      updateVehicles(state, rawDt);
-      updatePedestrians(state, rawDt);
-    } else {
-      if (state.player.vehicle && !isAnyModalOpen(state)) {
-        state.camera.aiming = false;
-        state.camera.orbitIdleTimer = Math.max(0, (state.camera.orbitIdleTimer || 0) - rawDt);
-        if (state.camera.orbitIdleTimer <= 0 && state.player.vehicle.speed > 18) {
-          state.camera.yaw = lerpAngle(state.camera.yaw, state.player.vehicle.angle, 4.0 * rawDt);
-          state.camera.pitch += (-0.08 - state.camera.pitch) * Math.min(1, 3.5 * rawDt);
+      if (state.startScreenOpen) {
+        updateVehicles(state, rawDt);
+        updatePedestrians(state, rawDt);
+      } else {
+        if (state.player.vehicle && !isAnyModalOpen(state)) {
+          state.camera.aiming = false;
+          state.camera.orbitIdleTimer = Math.max(0, (state.camera.orbitIdleTimer || 0) - rawDt);
+          if (state.camera.orbitIdleTimer <= 0 && state.player.vehicle.speed > 18) {
+            state.camera.yaw = lerpAngle(state.camera.yaw, state.player.vehicle.angle, 4.0 * rawDt);
+            state.camera.pitch += (-0.08 - state.camera.pitch) * Math.min(1, 3.5 * rawDt);
+          }
         }
-      }
 
-      if (state.input.jumpBuffer > 0) {
-        state.input.jumpBuffer = Math.max(0, state.input.jumpBuffer - rawDt);
-      }
+        if (state.input.jumpBuffer > 0) {
+          state.input.jumpBuffer = Math.max(0, state.input.jumpBuffer - rawDt);
+        }
 
-      updateVehicles(state, rawDt);
-      updatePlayerOnFoot(state, rawDt);
-      updatePedestrians(state, rawDt);
-      updatePoliceSystem(state, rawDt);
-      updateCombatAndProjectiles(state, rawDt);
-      updateMissionSystem(state, rawDt);
-      updateShopSystem(state, rawDt);
-      updateNightlifeSystem(state, rawDt);
-      state.audio.update(state, rawDt);
+        updateVehicles(state, rawDt);
+        updatePlayerOnFoot(state, rawDt);
+        updatePedestrians(state, rawDt);
+        updatePoliceSystem(state, rawDt);
+        updateCombatAndProjectiles(state, rawDt);
+        updateMissionSystem(state, rawDt);
+        updateShopSystem(state, rawDt);
+        updateNightlifeSystem(state, rawDt);
+        state.audio.update(state, rawDt);
 
-      if (state.hudBanner && state.hudBanner.timer > 0) {
-        state.hudBanner.timer = Math.max(0, state.hudBanner.timer - rawDt);
+        if (state.hudBanner && state.hudBanner.timer > 0) {
+          state.hudBanner.timer = Math.max(0, state.hudBanner.timer - rawDt);
+        }
       }
     }
   } else {
     state.time = 1.25;
   }
 
-  worldRenderer.render(rawDt);
+  worldRenderer.render(state.paused ? 0 : rawDt);
   renderHud2D(hudCtx, state);
 
   requestAnimationFrame(frame);

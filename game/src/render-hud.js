@@ -76,6 +76,29 @@ export function getStartScreenLayout() {
   };
 }
 
+export function getPauseMenuLayout() {
+  const w = 420;
+  const h = 418;
+  const x = Math.round((1280 - w) * 0.5);
+  const y = 148;
+  const bw = w - 56;
+  const bh = 44;
+  const bx = x + 28;
+  const startY = y + 112;
+  const gap = 11;
+  return {
+    x,
+    y,
+    w,
+    h,
+    resumeRect: { id: 'resume', x: bx, y: startY, w: bw, h: bh },
+    saveRect: { id: 'save', x: bx, y: startY + (bh + gap), w: bw, h: bh },
+    audioRect: { id: 'audio', x: bx, y: startY + (bh + gap) * 2, w: bw, h: bh },
+    newGameRect: { id: 'new', x: bx, y: startY + (bh + gap) * 3, w: bw, h: bh },
+    titleRect: { id: 'title', x: bx, y: startY + (bh + gap) * 4, w: bw, h: bh }
+  };
+}
+
 export function renderHud2D(ctx, state) {
   ctx.clearRect(0, 0, 1280, 720);
 
@@ -131,6 +154,11 @@ export function renderHud2D(ctx, state) {
     renderSafehouseDossierModal(ctx, state);
   }
 
+  // 8B. Frosted-Glass Pause Menu Overlay
+  if (state.paused) {
+    renderPauseMenuOverlay(ctx, state);
+  }
+
   // 9. Slim Bottom-Edge Control Legend Bar
   renderBottomControlStrip(ctx);
 }
@@ -160,7 +188,7 @@ function renderDamageAndBlastOverlay(ctx, state) {
 
 function renderDynamicCrosshair(ctx, state) {
   const { player, camera: cam } = state;
-  if (!cam || player.vehicle) return;
+  if (!cam || player.vehicle || state.paused) return;
 
   const modalOpen = Boolean(
     (state.shopModal && state.shopModal.open) ||
@@ -171,7 +199,7 @@ function renderDynamicCrosshair(ctx, state) {
   if (modalOpen) return;
   if (cam.overridePose && !cam.showShowcaseCrosshair) return;
 
-  const weapon = WEAPONS[player.weaponIndex] || WEAPONS[0];
+  const weapon = WEAPONS[player.weaponIndex] || WEAPONS[1];
   const speed = Math.hypot(player.vx || 0, player.vy || 0);
   const aimBlend = cam.aimBlend || 0;
   const baseGap = (8.5 - aimBlend * 4.2) + Math.min(9.5, speed * 0.055) + (weapon.spread || 0.02) * 85 + (player.spreadBloom || 0) * 115;
@@ -191,41 +219,82 @@ function renderDynamicCrosshair(ctx, state) {
   ctx.save();
   ctx.lineCap = 'round';
 
-  // Crisp subtle dark halo behind ticks for daylight/sky readability
-  ctx.strokeStyle = 'rgba(10, 14, 20, 0.65)';
-  ctx.lineWidth = 3.4;
-  ctx.beginPath();
-  ctx.moveTo(cx - gap - tickLen, cy);
-  ctx.lineTo(cx - gap, cy);
-  ctx.moveTo(cx + gap, cy);
-  ctx.lineTo(cx + gap + tickLen, cy);
-  ctx.moveTo(cx, cy - gap - tickLen);
-  ctx.lineTo(cx, cy - gap);
-  ctx.moveTo(cx, cy + gap);
-  ctx.lineTo(cx, cy + gap + tickLen);
-  ctx.stroke();
+  if (weapon.isMelee) {
+    // Compact melee diamond reticle
+    ctx.strokeStyle = 'rgba(10, 14, 20, 0.65)';
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5.5, 0, Math.PI * 2);
+    ctx.stroke();
 
-  // Foreground dynamic crosshair ticks
-  ctx.strokeStyle = mainCol;
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  ctx.moveTo(cx - gap - tickLen, cy);
-  ctx.lineTo(cx - gap, cy);
-  ctx.moveTo(cx + gap, cy);
-  ctx.lineTo(cx + gap + tickLen, cy);
-  ctx.moveTo(cx, cy - gap - tickLen);
-  ctx.lineTo(cx, cy - gap);
-  ctx.moveTo(cx, cy + gap);
-  ctx.lineTo(cx, cy + gap + tickLen);
-  ctx.stroke();
+    ctx.strokeStyle = mainCol;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5.5, 0, Math.PI * 2);
+    ctx.stroke();
 
-  // Center precision dot
-  ctx.fillStyle = mainCol;
-  ctx.beginPath();
-  ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
-  ctx.fill();
+    ctx.fillStyle = mainCol;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Crisp subtle dark halo behind ticks for daylight/sky readability
+    ctx.strokeStyle = 'rgba(10, 14, 20, 0.65)';
+    ctx.lineWidth = 3.4;
+    ctx.beginPath();
+    ctx.moveTo(cx - gap - tickLen, cy);
+    ctx.lineTo(cx - gap, cy);
+    ctx.moveTo(cx + gap, cy);
+    ctx.lineTo(cx + gap + tickLen, cy);
+    ctx.moveTo(cx, cy - gap - tickLen);
+    ctx.lineTo(cx, cy - gap);
+    ctx.moveTo(cx, cy + gap);
+    ctx.lineTo(cx, cy + gap + tickLen);
+    ctx.stroke();
 
-  // Brief Hit Marker 'X' when bullets connect
+    // Foreground dynamic crosshair ticks
+    ctx.strokeStyle = mainCol;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(cx - gap - tickLen, cy);
+    ctx.lineTo(cx - gap, cy);
+    ctx.moveTo(cx + gap, cy);
+    ctx.lineTo(cx + gap + tickLen, cy);
+    ctx.moveTo(cx, cy - gap - tickLen);
+    ctx.lineTo(cx, cy - gap);
+    ctx.moveTo(cx, cy + gap);
+    ctx.lineTo(cx, cy + gap + tickLen);
+    ctx.stroke();
+
+    // Center precision dot
+    ctx.fillStyle = mainCol;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Circular reload progress ring around crosshair
+  if ((player.reloadTimer || 0) > 0 && weapon.reloadTime > 0) {
+    const progress = 1 - Math.max(0, Math.min(1, player.reloadTimer / weapon.reloadTime));
+    ctx.beginPath();
+    ctx.arc(cx, cy, 16, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(10, 14, 20, 0.55)';
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 16, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * progress);
+    ctx.strokeStyle = ACCENT_CYAN;
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+
+    ctx.fillStyle = ACCENT_GOLD;
+    ctx.font = '700 9.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('RELOADING', cx, cy + 30);
+  }
+
+  // Brief Hit Marker 'X' when bullets or punches connect
   if ((cam.hitMarkerTimer || 0) > 0) {
     const hmAlpha = Math.min(1, cam.hitMarkerTimer / 0.14);
     ctx.strokeStyle = cam.hitMarkerCrit
@@ -524,19 +593,28 @@ function renderTopRightStatusCluster(ctx, state) {
   ctx.textAlign = 'left';
   ctx.fillText(`$${player.cash.toLocaleString()}`, 984, 65);
 
-  // Equipped Weapon & Live Ammo Badge
-  const liveAmmo =
+  // Equipped Weapon & Live Mag / Reserve Ammo Badge
+  const curMag =
+    player.weaponMag && typeof player.weaponMag[weapon.id] === 'number'
+      ? player.weaponMag[weapon.id]
+      : weapon.magSize || 0;
+  const reserveAmmo =
     player.weaponAmmo && typeof player.weaponAmmo[weapon.id] === 'number'
       ? player.weaponAmmo[weapon.id]
       : weapon.ammo;
+  const weaponReadout = weapon.isMelee
+    ? `${weapon.shortName} • UNARMED`
+    : (player.reloadTimer || 0) > 0
+      ? `${weapon.shortName} • RELOADING`
+      : `${weapon.shortName} • ${curMag} / ${reserveAmmo}`;
   ctx.fillStyle = weapon.color || ACCENT_CYAN;
   ctx.font = '700 11px "Segoe UI", sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText(`${weapon.shortName} • ${liveAmmo} RDS`, 1244, 64);
+  ctx.fillText(weaponReadout, 1244, 64);
 
   ctx.fillStyle = TEXT_MUTED;
   ctx.font = '500 10px "Segoe UI", sans-serif';
-  ctx.fillText('[E] SHOPS  [1-5] WEAPONS  [TAB] DOSSIER', 1244, 86);
+  ctx.fillText('[1-6] WEAPONS  [R] RELOAD  [V] PUNCH', 1244, 86);
 }
 
 function renderBottomLeftRadar(ctx, state) {
@@ -760,7 +838,7 @@ function renderBottomRightTelemetry(ctx, state) {
   const { player } = state;
   const station = RADIO_STATIONS[player.radioIndex] || RADIO_STATIONS[0];
 
-  drawFrostedGlassPanel(ctx, 996, 580, 264, 108, 8, GLASS_BG, GLASS_BORDER);
+  drawFrostedGlassPanel(ctx, 964, 574, 296, 114, 8, GLASS_BG, GLASS_BORDER);
 
   if (player.vehicle) {
     const v = player.vehicle;
@@ -769,8 +847,8 @@ function renderBottomRightTelemetry(ctx, state) {
     const gear = v.gear === 0 ? 'R' : `G${v.gear || 1}`;
 
     // Sleek Radial Arc Tachometer
-    const gx = 1046;
-    const gy = 634;
+    const gx = 1020;
+    const gy = 630;
     ctx.save();
     ctx.beginPath();
     ctx.arc(gx, gy, 32, Math.PI * 0.75, Math.PI * 2.25);
@@ -794,52 +872,102 @@ function renderBottomRightTelemetry(ctx, state) {
     ctx.fillStyle = TEXT_PRIMARY;
     ctx.font = '800 30px "Consolas", "Segoe UI", monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`${mph}`, 1094, 622);
+    ctx.fillText(`${mph}`, 1068, 619);
 
     ctx.fillStyle = v.nitroActive ? ACCENT_CYAN : TEXT_MUTED;
     ctx.font = '700 10.5px "Segoe UI", sans-serif';
-    ctx.fillText(v.nitroActive ? 'MPH • NITRO' : 'MPH', 1154, 620);
+    ctx.fillText(v.nitroActive ? 'MPH • NITRO' : 'MPH', 1130, 617);
 
     // Vehicle Name & Category
     ctx.fillStyle = ACCENT_GOLD;
     ctx.font = '700 10.5px "Segoe UI", sans-serif';
-    ctx.fillText(`${v.name} (${v.category})`, 1094, 643);
+    ctx.fillText(`${v.name} (${v.category})`, 1068, 640);
 
     // Radio Station Ticker
     ctx.fillStyle = TEXT_MUTED;
     ctx.font = '500 10.5px "Segoe UI", sans-serif';
-    ctx.fillText(`♪ ${station.name}`, 1014, 675);
+    ctx.fillText(`♪ ${station.name}`, 984, 675);
   } else {
-    // On-Foot Tactical Arsenal Display
-    ctx.fillStyle = ACCENT_CYAN;
+    // On-Foot Tactical Arsenal Display (6 Slots + Live Mag/Reserve Ammo Readout)
+    const activeW = WEAPONS[player.weaponIndex] || WEAPONS[1];
+    const curMag =
+      player.weaponMag && typeof player.weaponMag[activeW.id] === 'number'
+        ? player.weaponMag[activeW.id]
+        : activeW.magSize || 0;
+    const reserve =
+      player.weaponAmmo && typeof player.weaponAmmo[activeW.id] === 'number'
+        ? player.weaponAmmo[activeW.id]
+        : activeW.ammo;
+
+    ctx.fillStyle = activeW.color || ACCENT_CYAN;
     ctx.font = '700 10.5px "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
-    const isLocked = typeof document !== 'undefined' && document.pointerLockElement !== null;
-    ctx.fillText(isLocked ? 'TACTICAL 3D AIM • [RMB] ADS' : 'ON-FOOT • [CLICK] LOCK 3D AIM', 1014, 601);
+    ctx.fillText(activeW.name, 978, 595);
+
+    ctx.textAlign = 'right';
+    if (activeW.isMelee) {
+      ctx.fillStyle = '#e6c5a3';
+      ctx.font = '800 12.5px "Consolas", "Segoe UI", monospace';
+      ctx.fillText('MELEE • UNARMED', 1246, 596);
+    } else if ((player.reloadTimer || 0) > 0) {
+      ctx.fillStyle = ACCENT_GOLD;
+      ctx.font = '800 12.5px "Segoe UI", sans-serif';
+      ctx.fillText('RELOADING...', 1246, 596);
+    } else {
+      const lowClip = curMag > 0 && curMag <= Math.max(1, Math.ceil(activeW.magSize * 0.3));
+      ctx.fillStyle = curMag === 0 ? ACCENT_ALERT : lowClip ? ACCENT_GOLD : ACCENT_EMERALD;
+      ctx.font = '800 15.5px "Consolas", "Segoe UI", monospace';
+      ctx.fillText(`${curMag} / ${reserve}`, 1246, 596);
+    }
+
+    const slotShort = {
+      fists: 'FISTS',
+      pistol: 'PISTOL',
+      smg: 'SMG',
+      shotgun: '12G',
+      carbine: 'V-416',
+      rpg: 'RPG'
+    };
 
     for (let i = 0; i < WEAPONS.length; i++) {
       const w = WEAPONS[i];
       const active = i === player.weaponIndex;
-      const sx = 1014 + i * 47;
-      ctx.fillStyle = active ? 'rgba(224, 178, 104, 0.22)' : 'rgba(255, 255, 255, 0.06)';
-      ctx.fillRect(sx, 613, 42, 32);
+      const sx = 978 + i * 45;
+      ctx.fillStyle = active ? 'rgba(224, 178, 104, 0.24)' : 'rgba(255, 255, 255, 0.06)';
+      ctx.fillRect(sx, 606, 41, 44);
       ctx.strokeStyle = active ? ACCENT_GOLD : 'rgba(255, 255, 255, 0.14)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(sx, 613, 42, 32);
+      ctx.lineWidth = active ? 1.4 : 1;
+      ctx.strokeRect(sx, 606, 41, 44);
 
       ctx.fillStyle = active ? ACCENT_GOLD : TEXT_MUTED;
-      ctx.font = '700 9.5px "Segoe UI", sans-serif';
+      ctx.font = '700 8.5px "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`[${i + 1}]`, sx + 21, 627);
+      ctx.fillText(`[${i + 1}]`, sx + 20.5, 617);
+
       ctx.fillStyle = TEXT_PRIMARY;
-      ctx.font = '600 8px "Segoe UI", sans-serif';
-      ctx.fillText(w.id.toUpperCase(), sx + 21, 640);
+      ctx.font = '700 8.5px "Segoe UI", sans-serif';
+      ctx.fillText(slotShort[w.id] || w.id.toUpperCase(), sx + 20.5, 630);
+
+      const m = player.weaponMag && typeof player.weaponMag[w.id] === 'number' ? player.weaponMag[w.id] : w.magSize || 0;
+      const r = player.weaponAmmo && typeof player.weaponAmmo[w.id] === 'number' ? player.weaponAmmo[w.id] : w.ammo;
+      const total = w.isMelee ? 'INF' : `${m + r}`;
+      ctx.fillStyle = !w.isMelee && m + r === 0 ? ACCENT_ALERT : active ? ACCENT_EMERALD : TEXT_MUTED;
+      ctx.font = '700 8.5px "Consolas", "Segoe UI", monospace';
+      ctx.fillText(total, sx + 20.5, 644);
     }
 
-    ctx.fillStyle = TEXT_MUTED;
-    ctx.font = '500 10.2px "Segoe UI", sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('[SPACE] JUMP • [F] CARJACK • [RMB] ADS', 1014, 673);
+    if ((player.reloadTimer || 0) > 0 && activeW.reloadTime > 0) {
+      const p = 1 - Math.max(0, Math.min(1, player.reloadTimer / activeW.reloadTime));
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+      ctx.fillRect(978, 662, 268, 7);
+      ctx.fillStyle = ACCENT_CYAN;
+      ctx.fillRect(978, 662, 268 * p, 7);
+    } else {
+      ctx.fillStyle = TEXT_MUTED;
+      ctx.font = '500 10px "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('[R] RELOAD • [V] PUNCH • [RMB] ADS', 978, 673);
+    }
   }
 }
 
@@ -1125,10 +1253,10 @@ function renderStartTitleScreen(ctx, state) {
   ];
   const rightRows = [
     ['[F / ENTER]', 'Carjack / Exit Vehicle'],
-    ['[E]', 'Walk-In Shops, Bar & VIP Suite'],
+    ['[E] / [V]', 'Walk-In Shops / Quick Punch'],
     ['[G] / [H]', 'Dance in Club / Honk Companion'],
-    ['[1-5 / R]', 'Switch Weapons / Radio Station'],
-    ['[K] / [TAB]', 'Save Career / Career Dossier']
+    ['[1-6 / R]', 'Switch Weapons / Reload'],
+    ['[P / ESC / X]', 'Pause Menu / Radio Station']
   ];
 
   ctx.font = '600 10.5px "Segoe UI", sans-serif';
@@ -1442,16 +1570,91 @@ function renderActiveNightlifeSessionHud(ctx, state) {
   ctx.restore();
 }
 
+function renderPauseMenuOverlay(ctx, state) {
+  const layout = getPauseMenuLayout();
+  const { x, y, w, h, resumeRect, saveRect, audioRect, newGameRect, titleRect } = layout;
+  const muted = Boolean(state.audio && state.audio.stats && state.audio.stats.muted);
+  const district = getDistrictAt(state.player.x, state.player.y);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.56)';
+  ctx.fillRect(0, 0, 1280, 720);
+
+  drawFrostedGlassPanel(ctx, x, y, w, h, 12, GLASS_BG_STRONG, 'rgba(224, 178, 104, 0.50)');
+
+  ctx.fillStyle = ACCENT_GOLD;
+  ctx.fillRect(x + 28, y + 20, 52, 3.5);
+
+  ctx.fillStyle = ACCENT_CYAN;
+  ctx.font = '700 10px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`SOLARIS BAY • ${district.name}`, x + 28, y + 42);
+
+  ctx.fillStyle = TEXT_PRIMARY;
+  ctx.font = '800 24px "Segoe UI", sans-serif';
+  ctx.fillText('GAME PAUSED', x + 28, y + 70);
+
+  ctx.fillStyle = TEXT_MUTED;
+  ctx.font = '600 10.5px "Segoe UI", sans-serif';
+  const savedLabel = state.lastSaveStatus === 'CAREER SAVED TO LOCALSTORAGE' ? '✓ SAVED' : 'LIVE SESSION';
+  ctx.fillText(
+    `CASH $${state.player.cash.toLocaleString()} • HP ${Math.round(state.player.hp)}/${state.player.maxHp || 100} • ${savedLabel}`,
+    x + 28,
+    y + 92
+  );
+
+  const buttons = [
+    { rect: resumeRect, label: '[P / ESC] RESUME GAME', accent: ACCENT_EMERALD },
+    {
+      rect: saveRect,
+      label:
+        state.lastSaveStatus === 'CAREER SAVED TO LOCALSTORAGE'
+          ? '[K] SAVE CAREER  (✓ SAVED)'
+          : '[K] SAVE CAREER',
+      accent: ACCENT_CYAN
+    },
+    {
+      rect: audioRect,
+      label: muted ? '[U] AUDIO: MUTED' : '[U] AUDIO: ON',
+      accent: muted ? ACCENT_ALERT : ACCENT_GOLD
+    },
+    { rect: newGameRect, label: '[N] NEW GAME', accent: ACCENT_GOLD },
+    { rect: titleRect, label: '[T] TITLE SCREEN', accent: TEXT_MUTED }
+  ];
+
+  for (const btn of buttons) {
+    const hovered = state.pauseHover === btn.rect.id;
+    drawFrostedGlassPanel(
+      ctx,
+      btn.rect.x,
+      btn.rect.y,
+      btn.rect.w,
+      btn.rect.h,
+      7,
+      hovered ? 'rgba(255, 255, 255, 0.14)' : 'rgba(255, 255, 255, 0.06)',
+      hovered ? btn.accent : GLASS_BORDER
+    );
+    ctx.fillStyle = btn.accent;
+    ctx.fillRect(btn.rect.x + 10, btn.rect.y + 11, 3.5, btn.rect.h - 22);
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.font = '700 12.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(btn.label, btn.rect.x + btn.rect.w * 0.5, btn.rect.y + 27);
+  }
+
+  ctx.restore();
+}
+
 function renderBottomControlStrip(ctx) {
   ctx.fillStyle = 'rgba(10, 14, 21, 0.76)';
   ctx.fillRect(0, 698, 1280, 22);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
   ctx.fillRect(0, 698, 1280, 1);
   ctx.fillStyle = '#bcc7d4';
-  ctx.font = '500 9.8px "Segoe UI", sans-serif';
+  ctx.font = '500 9.5px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(
-    '[CLICK] AIM/FIRE  [RMB] ADS  [SPACE] JUMP/DRIFT  [WASD] MOVE/DRIVE  [SHIFT] NITRO  [F] CARJACK  [E] SHOPS/VIP  [G] DANCE  [H] PICKUP  [1-5] WEAPONS  [R] RADIO  [K] SAVE  [TAB] DOSSIER',
+    '[CLICK] AIM/FIRE  [RMB] ADS  [R] RELOAD  [V] PUNCH  [SPACE] JUMP/DRIFT  [1-6] WEAPONS  [F] CARJACK  [E] SHOPS  [P/ESC] PAUSE  [X] RADIO  [TAB] DOSSIER',
     640,
     713
   );

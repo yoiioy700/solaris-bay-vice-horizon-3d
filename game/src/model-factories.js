@@ -787,6 +787,17 @@ export function buildCharacterModel3D(person, lib) {
     hand.position.set(0.62, -5.05, 0);
     armPivot.add(hand);
 
+    // Subtle tactical leather knuckle wrap accent for unarmed boxing stance & quick melee
+    const fistWrap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.84, 0.78, 1.15, 10),
+      lib.darkMetalMaterial
+    );
+    fistWrap.position.set(0.56, -4.68, 0);
+    fistWrap.rotation.z = 0.22;
+    fistWrap.visible = false;
+    armPivot.add(fistWrap);
+    armPivot.userData.fistWrap = fistWrap;
+
     return armPivot;
   }
 
@@ -815,42 +826,229 @@ export function buildCharacterModel3D(person, lib) {
   weaponGroup.position.set(1.15, -6.1, -0.25);
   weaponGroup.rotation.z = -Math.PI * 0.5;
 
-  const receiver = new THREE.Mesh(
-    new THREE.BoxGeometry(5.8, 1.45, 0.95),
+  const walnutWoodMat = lib.getMatteColorMaterial('#6d4c33', 0.74, 0.04);
+  const oliveDrabMat = lib.getMatteColorMaterial('#4d5a3b', 0.72, 0.14);
+  const brassWarheadMat = lib.getMatteColorMaterial('#8f7b46', 0.48, 0.35);
+
+  // 1. Fists (empty unarmed slot — weaponGroup hides cleanly)
+  const fistsModel = new THREE.Group();
+
+  // 2. Vice 9mm Pistol: compact sleek black frame & brushed-silver slide (muzzle ~2.6)
+  const pistolModel = new THREE.Group();
+  const pistolSlide = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.72, 0.72), lib.chromeMaterial);
+  pistolSlide.position.set(0.95, 0.46, 0);
+  pistolSlide.castShadow = true;
+  pistolModel.add(pistolSlide);
+  const pistolFrame = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.44, 0.68), lib.darkMetalMaterial);
+  pistolFrame.position.set(0.82, -0.06, 0);
+  pistolModel.add(pistolFrame);
+  const pistolGrip = new THREE.Mesh(new THREE.BoxGeometry(0.92, 1.85, 0.64), lib.darkMetalMaterial);
+  pistolGrip.position.set(-0.22, -1.02, 0);
+  pistolGrip.rotation.z = 0.25;
+  pistolModel.add(pistolGrip);
+  const pistolBarrelTip = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 0.45, 8),
     lib.darkMetalMaterial
   );
-  receiver.castShadow = true;
-  weaponGroup.add(receiver);
+  pistolBarrelTip.rotation.z = Math.PI * 0.5;
+  pistolBarrelTip.position.set(2.55, 0.44, 0);
+  pistolModel.add(pistolBarrelTip);
+  const pistolFrontSight = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.2), lib.darkMetalMaterial);
+  pistolFrontSight.position.set(2.25, 0.9, 0);
+  pistolModel.add(pistolFrontSight);
 
-  const topRail = new THREE.Mesh(
-    new THREE.BoxGeometry(4.2, 0.35, 0.65),
+  // 3. Spectre Micro-SMG: compact tactical boxy receiver, stubby suppressor, long vertical stick mag (muzzle ~5.4)
+  const smgModel = new THREE.Group();
+  const smgReceiver = new THREE.Mesh(new THREE.BoxGeometry(3.8, 1.35, 0.96), lib.darkMetalMaterial);
+  smgReceiver.position.set(0.7, 0.28, 0);
+  smgReceiver.castShadow = true;
+  smgModel.add(smgReceiver);
+  const smgTopRail = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.28, 0.66), lib.chromeMaterial);
+  smgTopRail.position.set(0.65, 1.05, 0);
+  smgModel.add(smgTopRail);
+  const smgReflex = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.62, 0.64), lib.darkMetalMaterial);
+  smgReflex.position.set(0.5, 1.45, 0);
+  smgModel.add(smgReflex);
+  const smgGrip = new THREE.Mesh(new THREE.BoxGeometry(0.88, 1.85, 0.68), lib.darkMetalMaterial);
+  smgGrip.position.set(-0.35, -0.95, 0);
+  smgGrip.rotation.z = 0.22;
+  smgModel.add(smgGrip);
+  const smgStickMag = new THREE.Mesh(new THREE.BoxGeometry(0.82, 3.25, 0.66), lib.darkMetalMaterial);
+  smgStickMag.position.set(1.55, -1.72, 0);
+  smgStickMag.rotation.z = 0.06;
+  smgStickMag.castShadow = true;
+  smgModel.add(smgStickMag);
+  const smgSuppressor = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.46, 0.46, 2.75, 10),
+    lib.darkMetalMaterial
+  );
+  smgSuppressor.rotation.z = Math.PI * 0.5;
+  smgSuppressor.position.set(3.95, 0.35, 0);
+  smgSuppressor.castShadow = true;
+  smgModel.add(smgSuppressor);
+  const smgWireStock = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.34, 0.45), lib.chromeMaterial);
+  smgWireStock.position.set(-1.85, 0.45, 0);
+  smgModel.add(smgWireStock);
+
+  // 4. Breacher Tactical 12G Shotgun: walnut stock, grooved pump forend, dual barrel + tube (muzzle ~7.8)
+  const shotgunModel = new THREE.Group();
+  const sgStock = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.32, 0.86), walnutWoodMat);
+  sgStock.position.set(-2.15, -0.22, 0);
+  sgStock.rotation.z = 0.14;
+  sgStock.castShadow = true;
+  shotgunModel.add(sgStock);
+  const sgReceiver = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.38, 0.96), lib.darkMetalMaterial);
+  sgReceiver.position.set(0.85, 0.22, 0);
+  sgReceiver.castShadow = true;
+  shotgunModel.add(sgReceiver);
+  const sgTopBarrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.35, 0.38, 5.4, 10),
     lib.chromeMaterial
   );
-  topRail.position.set(0.2, 0.88, 0);
-  weaponGroup.add(topRail);
-
-  const opticSight = new THREE.Mesh(
-    new THREE.BoxGeometry(1.3, 0.85, 0.75),
+  sgTopBarrel.rotation.z = Math.PI * 0.5;
+  sgTopBarrel.position.set(5.05, 0.55, 0);
+  sgTopBarrel.castShadow = true;
+  shotgunModel.add(sgTopBarrel);
+  const sgMagTube = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.3, 4.7, 10),
     lib.darkMetalMaterial
   );
-  opticSight.position.set(-0.2, 1.35, 0);
-  weaponGroup.add(opticSight);
+  sgMagTube.rotation.z = Math.PI * 0.5;
+  sgMagTube.position.set(4.65, -0.05, 0);
+  shotgunModel.add(sgMagTube);
+  const sgPumpForend = new THREE.Mesh(new THREE.BoxGeometry(2.55, 0.96, 1.08), walnutWoodMat);
+  sgPumpForend.position.set(3.85, -0.1, 0);
+  sgPumpForend.castShadow = true;
+  shotgunModel.add(sgPumpForend);
 
-  const barrel = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.36, 0.36, 4.2, 10),
+  // 5. V-416 Tactical Carbine: buttstock, curved rifle mag, optic scope, vented handguard, muzzle brake (muzzle ~8.4)
+  const carbineModel = new THREE.Group();
+  const cbStock = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.45, 0.88), lib.darkMetalMaterial);
+  cbStock.position.set(-2.55, 0.08, 0);
+  cbStock.castShadow = true;
+  carbineModel.add(cbStock);
+  const cbReceiver = new THREE.Mesh(new THREE.BoxGeometry(4.0, 1.45, 0.98), lib.darkMetalMaterial);
+  cbReceiver.position.set(0.8, 0.28, 0);
+  cbReceiver.castShadow = true;
+  carbineModel.add(cbReceiver);
+  const cbGrip = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.8, 0.72), lib.darkMetalMaterial);
+  cbGrip.position.set(-0.35, -1.0, 0);
+  cbGrip.rotation.z = 0.28;
+  carbineModel.add(cbGrip);
+  const cbCurvedMagUpper = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.75, 0.76), lib.darkMetalMaterial);
+  cbCurvedMagUpper.position.set(1.4, -1.05, 0);
+  cbCurvedMagUpper.rotation.z = 0.18;
+  carbineModel.add(cbCurvedMagUpper);
+  const cbCurvedMagLower = new THREE.Mesh(new THREE.BoxGeometry(0.98, 1.45, 0.74), lib.darkMetalMaterial);
+  cbCurvedMagLower.position.set(1.75, -2.25, 0);
+  cbCurvedMagLower.rotation.z = 0.42;
+  carbineModel.add(cbCurvedMagLower);
+  const cbScopeMount = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.45, 0.56), lib.chromeMaterial);
+  cbScopeMount.position.set(0.75, 1.18, 0);
+  carbineModel.add(cbScopeMount);
+  const cbScope = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.42, 0.46, 2.3, 10),
+    lib.darkMetalMaterial
+  );
+  cbScope.rotation.z = Math.PI * 0.5;
+  cbScope.position.set(0.75, 1.58, 0);
+  cbScope.castShadow = true;
+  carbineModel.add(cbScope);
+  const cbHandguard = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.15, 0.94), lib.darkMetalMaterial);
+  cbHandguard.position.set(4.35, 0.36, 0);
+  cbHandguard.castShadow = true;
+  carbineModel.add(cbHandguard);
+  const cbRail = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.24, 0.56), lib.chromeMaterial);
+  cbRail.position.set(2.55, 1.02, 0);
+  carbineModel.add(cbRail);
+  const cbBarrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.28, 0.3, 2.75, 10),
     lib.chromeMaterial
   );
-  barrel.rotation.z = Math.PI * 0.5;
-  barrel.position.set(3.9, 0.25, 0);
-  weaponGroup.add(barrel);
-
-  const magazine = new THREE.Mesh(
-    new THREE.BoxGeometry(1.15, 2.5, 0.78),
+  cbBarrel.rotation.z = Math.PI * 0.5;
+  cbBarrel.position.set(6.95, 0.38, 0);
+  carbineModel.add(cbBarrel);
+  const cbBrake = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.34, 0.85, 10),
     lib.darkMetalMaterial
   );
-  magazine.position.set(0.6, -1.45, 0);
-  magazine.rotation.z = 0.26;
-  weaponGroup.add(magazine);
+  cbBrake.rotation.z = Math.PI * 0.5;
+  cbBrake.position.set(8.2, 0.38, 0);
+  carbineModel.add(cbBrake);
+
+  // 6. Titan AT-4 RPG-7 Shoulder-Mounted Rocket Launcher: olive-drab tube, flared venturi, twin grips & warhead (muzzle ~9.2)
+  const rpgModel = new THREE.Group();
+  const rpgTube = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.95, 0.95, 11.4, 14),
+    oliveDrabMat
+  );
+  rpgTube.rotation.z = Math.PI * 0.5;
+  rpgTube.position.set(2.4, 0.95, 0);
+  rpgTube.castShadow = true;
+  rpgModel.add(rpgTube);
+  const rpgHeatShield = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.12, 1.12, 3.8, 14),
+    walnutWoodMat
+  );
+  rpgHeatShield.rotation.z = Math.PI * 0.5;
+  rpgHeatShield.position.set(1.2, 0.95, 0);
+  rpgModel.add(rpgHeatShield);
+  const rpgVenturi = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.94, 1.48, 2.0, 14),
+    lib.darkMetalMaterial
+  );
+  rpgVenturi.rotation.z = Math.PI * 0.5;
+  rpgVenturi.position.set(-4.1, 0.95, 0);
+  rpgModel.add(rpgVenturi);
+  const rpgFrontGrip = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.75, 0.76), lib.darkMetalMaterial);
+  rpgFrontGrip.position.set(3.2, -0.55, 0);
+  rpgFrontGrip.rotation.z = 0.14;
+  rpgModel.add(rpgFrontGrip);
+  const rpgRearGrip = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.85, 0.76), lib.darkMetalMaterial);
+  rpgRearGrip.position.set(0.2, -0.62, 0);
+  rpgRearGrip.rotation.z = 0.22;
+  rpgModel.add(rpgRearGrip);
+  const rpgOptic = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.05, 0.78), lib.darkMetalMaterial);
+  rpgOptic.position.set(2.0, 1.55, 1.05);
+  rpgModel.add(rpgOptic);
+  const rpgWarheadBase = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.18, 0.74, 1.35, 12),
+    brassWarheadMat
+  );
+  rpgWarheadBase.rotation.z = -Math.PI * 0.5;
+  rpgWarheadBase.position.set(8.35, 0.95, 0);
+  rpgWarheadBase.castShadow = true;
+  rpgModel.add(rpgWarheadBase);
+  const rpgWarheadTip = new THREE.Mesh(
+    new THREE.ConeGeometry(1.18, 1.65, 12),
+    oliveDrabMat
+  );
+  rpgWarheadTip.rotation.z = -Math.PI * 0.5;
+  rpgWarheadTip.position.set(9.75, 0.95, 0);
+  rpgWarheadTip.castShadow = true;
+  rpgModel.add(rpgWarheadTip);
+
+  const weaponVariants = {
+    fists: fistsModel,
+    pistol: pistolModel,
+    smg: smgModel,
+    shotgun: shotgunModel,
+    carbine: carbineModel,
+    rpg: rpgModel
+  };
+  const weaponMuzzleX = {
+    fists: 1.5,
+    pistol: 2.8,
+    smg: 5.5,
+    shotgun: 7.9,
+    carbine: 8.65,
+    rpg: 10.6
+  };
+
+  for (const [id, grp] of Object.entries(weaponVariants)) {
+    grp.visible = id === 'pistol';
+    weaponGroup.add(grp);
+  }
 
   // Crisp soft star-burst muzzle flash billboard (zero boxy octahedron artifacts)
   const muzzleMat = new THREE.SpriteMaterial({
@@ -863,7 +1061,7 @@ export function buildCharacterModel3D(person, lib) {
   });
   const muzzleFlashMesh = new THREE.Sprite(muzzleMat);
   muzzleFlashMesh.scale.set(5.2, 5.2, 1);
-  muzzleFlashMesh.position.set(6.4, 0.25, 0);
+  muzzleFlashMesh.position.set(weaponMuzzleX.pistol, 0.42, 0);
   muzzleFlashMesh.visible = false;
   weaponGroup.add(muzzleFlashMesh);
 
@@ -878,9 +1076,11 @@ export function buildCharacterModel3D(person, lib) {
     torsoGroup,
     headGroup,
     weaponGroup,
-    weaponReceiver: receiver,
-    weaponBarrel: barrel,
-    weaponMagazine: magazine,
+    weaponVariants,
+    weaponMuzzleX,
+    activeWeaponId: 'pistol',
+    fistWraps: [leftArmPivot.userData.fistWrap, rightArmPivot.userData.fistWrap],
+    rpgWarheadParts: [rpgWarheadBase, rpgWarheadTip],
     muzzleFlashMesh,
     jacketMat,
     shirtMat,

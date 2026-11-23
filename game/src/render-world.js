@@ -8,7 +8,8 @@ import {
   ISLAND_X2,
   ISLAND_Y1,
   ISLAND_Y2,
-  CAUSEWAY_YS
+  CAUSEWAY_YS,
+  WEAPONS
 } from './config.js';
 import { pointInBuilding, getGroundHeightAt, raycastColliders3D } from './city-map.js';
 import { computeDesiredCameraPose } from './combat-weapons.js';
@@ -756,6 +757,24 @@ export function createWorldRenderer3D(canvas, state) {
     };
   }
 
+  function syncCharacterWeaponVisual(mesh, weaponId) {
+    const ud = mesh && mesh.userData;
+    if (!ud || !ud.weaponGroup) return;
+    const id = weaponId || 'fists';
+    const isUnarmed = id === 'fists';
+    ud.activeWeaponId = id;
+    ud.weaponGroup.visible = !isUnarmed;
+    if (ud.weaponVariants) {
+      for (const [key, grp] of Object.entries(ud.weaponVariants)) {
+        grp.visible = !isUnarmed && key === id;
+      }
+    }
+    if (!isUnarmed && ud.muzzleFlashMesh && ud.weaponMuzzleX) {
+      ud.muzzleFlashMesh.position.x = ud.weaponMuzzleX[id] || 5.5;
+      ud.muzzleFlashMesh.position.y = id === 'rpg' ? 0.95 : 0.42;
+    }
+  }
+
   function render(dt = 0.016) {
     const { player, vehicles, pedestrians, wanted, missions, projectiles, particles, pickups } =
       state;
@@ -954,10 +973,14 @@ export function createWorldRenderer3D(canvas, state) {
           player.angle
         );
         playerMesh.scale.set(1, 1, 1);
+        playerMesh.userData.torsoGroup.rotation.y = 0;
         playerMesh.userData.leftLegPivot.rotation.z = 1.15;
         playerMesh.userData.rightLegPivot.rotation.z = 1.15;
         playerMesh.userData.leftArmPivot.rotation.z = 1.05 + pulse * 0.22;
         playerMesh.userData.rightArmPivot.rotation.z = 1.05 - pulse * 0.22;
+        if (playerMesh.userData.fistWraps) {
+          for (const fw of playerMesh.userData.fistWraps) if (fw) fw.visible = false;
+        }
         playerMesh.userData.weaponGroup.visible = false;
         playerMesh.userData.muzzleFlashMesh.visible = false;
         muzzleLight.intensity = 0;
@@ -972,10 +995,14 @@ export function createWorldRenderer3D(canvas, state) {
           player.angle + Math.sin(dp * 0.5) * 0.35
         );
         playerMesh.scale.set(1, 1, 1);
+        playerMesh.userData.torsoGroup.rotation.y = 0;
         playerMesh.userData.leftLegPivot.rotation.z = Math.sin(dp) * 0.42;
         playerMesh.userData.rightLegPivot.rotation.z = -Math.sin(dp) * 0.42;
         playerMesh.userData.leftArmPivot.rotation.z = 1.85 + Math.sin(dp) * 0.55;
         playerMesh.userData.rightArmPivot.rotation.z = 1.85 - Math.sin(dp) * 0.55;
+        if (playerMesh.userData.fistWraps) {
+          for (const fw of playerMesh.userData.fistWraps) if (fw) fw.visible = false;
+        }
         playerMesh.userData.weaponGroup.visible = false;
         playerMesh.userData.muzzleFlashMesh.visible = false;
         muzzleLight.intensity = 0;
@@ -990,6 +1017,26 @@ export function createWorldRenderer3D(canvas, state) {
         if (playerMesh.userData.aoShadow) {
           playerMesh.userData.aoShadow.position.y = 0.21 - airH;
           playerMesh.userData.aoShadow.material.opacity = Math.max(0.12, 0.5 - airH * 0.015);
+        }
+
+        const activeWeapon = WEAPONS[player.weaponIndex] || WEAPONS[1];
+        const wId = activeWeapon.id;
+        const isPunching = (player.punchTimer || 0) > 0;
+        const isReloading = (player.reloadTimer || 0) > 0 && (player.muzzleTimer || 0) <= 0;
+
+        syncCharacterWeaponVisual(playerMesh, wId);
+        if (playerMesh.userData.fistWraps) {
+          const showWraps = wId === 'fists' || isPunching;
+          for (const fw of playerMesh.userData.fistWraps) {
+            if (fw) fw.visible = showWraps;
+          }
+        }
+        if (wId === 'rpg' && playerMesh.userData.rpgWarheadParts) {
+          const hasRocketInTube =
+            (player.weaponMag ? player.weaponMag.rpg : 1) > 0 || (player.reloadTimer || 0) <= 0.4;
+          for (const rp of playerMesh.userData.rpgWarheadParts) {
+            rp.visible = hasRocketInTube;
+          }
         }
 
         if (player.grounded === false && airH > 0.6) {
@@ -1019,18 +1066,57 @@ export function createWorldRenderer3D(canvas, state) {
           }
           aimPitch = Math.max(-0.52, Math.min(0.62, aimPitch));
         }
-        const recoilKick = Math.min(0.14, (player.weaponRecoil || 0) * 0.08);
-        playerMesh.userData.rightArmPivot.rotation.z = Math.PI * 0.5 + aimPitch + recoilKick;
-        playerMesh.userData.weaponGroup.visible = true;
-        playerMesh.userData.muzzleFlashMesh.visible = player.muzzleTimer > 0;
-        if (player.muzzleTimer > 0 && playerMesh.userData.muzzleFlashMesh.material) {
-          playerMesh.userData.muzzleFlashMesh.material.rotation += 0.7;
+
+        if (isPunching) {
+          const dur = player.punchDuration || 0.28;
+          const pNorm = 1 - Math.max(0, Math.min(1, player.punchTimer / dur));
+          const thrust = Math.sin(pNorm * Math.PI);
+          const hand = player.punchHand || 'right';
+          if (hand === 'left') {
+            playerMesh.userData.leftArmPivot.rotation.z = 0.8 + thrust * 1.15;
+            playerMesh.userData.rightArmPivot.rotation.z = wId === 'fists' ? 1.0 : Math.PI * 0.25;
+            playerMesh.userData.torsoGroup.rotation.y = -0.45 * thrust;
+          } else if (hand === 'heavy') {
+            playerMesh.userData.leftArmPivot.rotation.z = 0.85 + thrust * 0.55;
+            playerMesh.userData.rightArmPivot.rotation.z = 1.05 + thrust * 1.1;
+            playerMesh.userData.torsoGroup.rotation.y = 0.58 * thrust;
+          } else {
+            playerMesh.userData.leftArmPivot.rotation.z = 0.95;
+            playerMesh.userData.rightArmPivot.rotation.z = 0.9 + thrust * 1.15;
+            playerMesh.userData.torsoGroup.rotation.y = 0.42 * thrust;
+          }
+          playerMesh.userData.muzzleFlashMesh.visible = false;
+          muzzleLight.intensity = 0;
+        } else if (isReloading) {
+          const rDur = activeWeapon.reloadTime || 1.25;
+          const rNorm = 1 - Math.max(0, Math.min(1, player.reloadTimer / rDur));
+          const tuckCurve = Math.sin(rNorm * Math.PI);
+          playerMesh.userData.rightArmPivot.rotation.z = Math.PI * 0.5 - 0.58 * tuckCurve;
+          playerMesh.userData.leftArmPivot.rotation.z = 0.92 * tuckCurve;
+          playerMesh.userData.torsoGroup.rotation.y = 0.22 * tuckCurve;
+          playerMesh.userData.muzzleFlashMesh.visible = false;
+          muzzleLight.intensity = 0;
+        } else if (wId === 'fists') {
+          playerMesh.userData.torsoGroup.rotation.y = 0;
+          const guardSway = Math.sin(player.walkPhase) * 0.14;
+          playerMesh.userData.leftArmPivot.rotation.z = 1.02 + guardSway;
+          playerMesh.userData.rightArmPivot.rotation.z = 1.14 - guardSway;
+          playerMesh.userData.muzzleFlashMesh.visible = false;
+          muzzleLight.intensity = 0;
+        } else {
+          playerMesh.userData.torsoGroup.rotation.y = 0;
+          const recoilKick = Math.min(0.14, (player.weaponRecoil || 0) * 0.08);
+          playerMesh.userData.rightArmPivot.rotation.z = Math.PI * 0.5 + aimPitch + recoilKick;
+          playerMesh.userData.muzzleFlashMesh.visible = player.muzzleTimer > 0;
+          if (player.muzzleTimer > 0 && playerMesh.userData.muzzleFlashMesh.material) {
+            playerMesh.userData.muzzleFlashMesh.material.rotation += 0.7;
+          }
         }
 
         playerMesh.updateMatrixWorld(true);
         playerMesh.userData.muzzleFlashMesh.getWorldPosition(_tmpVec3);
         player.muzzleWorldPos = { x: _tmpVec3.x, y: _tmpVec3.z, z: _tmpVec3.y };
-        if (player.muzzleTimer > 0) {
+        if (player.muzzleTimer > 0 && wId !== 'fists' && !isPunching) {
           muzzleLight.position.copy(_tmpVec3);
           muzzleLight.intensity = 6.2;
         } else {
@@ -1166,8 +1252,12 @@ export function createWorldRenderer3D(canvas, state) {
         }
         mesh.userData.headGroup.rotation.y = 0;
       }
-      mesh.userData.weaponGroup.visible = Boolean(npc.hasWeapon);
-      mesh.userData.muzzleFlashMesh.visible = npc.muzzleTimer > 0;
+      if (npc.hasWeapon) {
+        syncCharacterWeaponVisual(mesh, npc.weaponId || (npc.role === 'syndicate' ? 'smg' : 'pistol'));
+      } else {
+        syncCharacterWeaponVisual(mesh, 'fists');
+      }
+      mesh.userData.muzzleFlashMesh.visible = Boolean(npc.hasWeapon) && npc.muzzleTimer > 0;
     }
     for (const [id, mesh] of npcMeshes.entries()) {
       if (!activeNpcIds.has(id)) mesh.visible = false;
