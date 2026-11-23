@@ -1,6 +1,7 @@
 import { WANTED_THRESHOLDS } from './config.js';
 import { createVehicle } from './vehicles.js';
 import { createPedestrian } from './pedestrians.js';
+import { resolveCircleBuildingCollisions } from './city-map.js';
 
 export function createWantedState() {
   return {
@@ -129,10 +130,17 @@ export function updatePoliceSystem(state, dt) {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
+    if (state.cityMap && (state.cityMap.colliders || state.cityMap.buildings)) {
+      resolveCircleBuildingCollisions(copCar, 24, state.cityMap.colliders || state.cityMap.buildings);
+    }
     vehicles.push(copCar);
 
-    if (pedestrians.length < 62) {
-      pedestrians.push(createPedestrian(sx + 24, sy + 24, 'police'));
+    if (pedestrians.length < 145) {
+      const officer = createPedestrian(copCar.x + 24, copCar.y + 24, 'police');
+      if (state.cityMap && (state.cityMap.colliders || state.cityMap.buildings)) {
+        resolveCircleBuildingCollisions(officer, 9, state.cityMap.colliders || state.cityMap.buildings);
+      }
+      pedestrians.push(officer);
     }
   }
 

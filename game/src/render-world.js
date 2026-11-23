@@ -1,5 +1,15 @@
 import * as THREE from 'three';
-import { ROAD_WIDTH, COAST_X, BEACH_WIDTH, WORLD_HEIGHT } from './config.js';
+import {
+  ROAD_WIDTH,
+  COAST_X,
+  BEACH_WIDTH,
+  WORLD_HEIGHT,
+  ISLAND_X1,
+  ISLAND_X2,
+  ISLAND_Y1,
+  ISLAND_Y2,
+  CAUSEWAY_YS
+} from './config.js';
 import { createMaterialLibrary } from './materials-textures.js';
 import {
   syncTransform3D,
@@ -8,10 +18,19 @@ import {
   buildSkyscraperModel3D,
   buildPalmTreeModel3D,
   buildBeachPropModel3D,
+  buildShopModel3D,
+  buildTrafficLightModel3D,
+  buildCafePatioModel3D,
+  buildStreetPropModel3D,
+  buildBoardwalkRailingGroup,
+  buildClubEclipseModel3D,
+  buildHarborYardModel3D,
   buildHelicopterModel3D,
   buildLuxuryYachtModel3D
 } from './model-factories.js';
 import { findNearestHijackableVehicle } from './vehicles.js';
+import { findNearestShop, getActiveWalkInShopAt } from './shops-economy.js';
+import { CLUB_ECLIPSE_BOUNDS, isInsideClubEclipse } from './nightlife-romance.js';
 
 // Shared late-afternoon Miami golden-hour sun vector (~31.5° elevation)
 // Keeps sky glow, volumetric clouds, and directional shadows 100% physically aligned.
@@ -244,16 +263,79 @@ export function createWorldRenderer3D(canvas, state) {
   seawallMesh.receiveShadow = true;
   cityGroup.add(seawallMesh);
 
-  // Tropical Turquoise-Teal 3D Ocean Surface
-  const oceanGeo = new THREE.PlaneGeometry(1600, WORLD_HEIGHT + 800);
+  // Tropical Turquoise-Teal 3D Ocean Surface (expanded past Starfish Island & Sunset Beach!)
+  const oceanGeo = new THREE.PlaneGeometry(3400, WORLD_HEIGHT + 1200);
   oceanGeo.rotateX(-Math.PI * 0.5);
   const oceanMesh = new THREE.Mesh(oceanGeo, lib.oceanMaterial);
-  oceanMesh.position.set(COAST_X + BEACH_WIDTH + 795, -0.18, WORLD_HEIGHT * 0.5);
+  oceanMesh.position.set(COAST_X + BEACH_WIDTH + 1620, -0.22, WORLD_HEIGHT * 0.5);
   oceanMesh.receiveShadow = true;
   cityGroup.add(oceanMesh);
 
+  // Starfish Island Offshore Landmass, Beach Collar & Island Boulevards
+  const islandW = ISLAND_X2 - ISLAND_X1;
+  const islandH = ISLAND_Y2 - ISLAND_Y1;
+  const islandCx = (ISLAND_X1 + ISLAND_X2) * 0.5;
+  const islandCy = (ISLAND_Y1 + ISLAND_Y2) * 0.5;
+
+  const islandBeachGeo = new THREE.BoxGeometry(islandW + 76, 0.35, islandH + 76);
+  const islandBeach = new THREE.Mesh(islandBeachGeo, lib.sandMaterial);
+  islandBeach.position.set(islandCx, -0.05, islandCy);
+  islandBeach.receiveShadow = true;
+  cityGroup.add(islandBeach);
+
+  const islandSlabGeo = new THREE.BoxGeometry(islandW, 0.45, islandH);
+  const islandSlab = new THREE.Mesh(islandSlabGeo, lib.sidewalkMaterial);
+  islandSlab.position.set(islandCx, 0.02, islandCy);
+  islandSlab.receiveShadow = true;
+  cityGroup.add(islandSlab);
+
+  // Starfish Island Roads
+  if (cityMap.islandVerticalRoads) {
+    for (const rx of cityMap.islandVerticalRoads) {
+      const rGeo = new THREE.PlaneGeometry(ROAD_WIDTH, islandH - 60);
+      rGeo.rotateX(-Math.PI * 0.5);
+      const rMesh = new THREE.Mesh(rGeo, lib.roadMaterial);
+      rMesh.position.set(rx, 0.28, islandCy);
+      rMesh.receiveShadow = true;
+      cityGroup.add(rMesh);
+    }
+  }
+  if (cityMap.islandHorizontalRoads) {
+    for (const ry of cityMap.islandHorizontalRoads) {
+      const rGeo = new THREE.PlaneGeometry(ROAD_WIDTH, islandW - 40);
+      rGeo.rotateX(-Math.PI * 0.5);
+      rGeo.rotateY(Math.PI * 0.5);
+      const rMesh = new THREE.Mesh(rGeo, lib.roadMaterial);
+      rMesh.position.set(islandCx, 0.3, ry);
+      rMesh.receiveShadow = true;
+      cityGroup.add(rMesh);
+    }
+  }
+
+  // Two Grand Palm Causeway Bridges connecting Ocean Drive to Starfish Island (y = 896 & 1856)
+  for (const cy of CAUSEWAY_YS) {
+    const spanLen = ISLAND_X1 - 2720 + 180;
+    const midX = 2720 + spanLen * 0.5;
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(spanLen, 1.4, ROAD_WIDTH - 4), lib.roadMaterial);
+    deck.position.set(midX, 0.32, cy);
+    deck.receiveShadow = true;
+    cityGroup.add(deck);
+
+    for (const side of [-1, 1]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(spanLen, 3.2, 2.2), lib.seawallMaterial);
+      rail.position.set(midX, 2.0, cy + side * (ROAD_WIDTH * 0.5 - 1));
+      rail.castShadow = true;
+      cityGroup.add(rail);
+    }
+    for (let px = 2860; px <= ISLAND_X1; px += 90) {
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(10, 12, ROAD_WIDTH - 12), lib.graniteTrimMaterial);
+      pier.position.set(px, -5.8, cy);
+      cityGroup.add(pier);
+    }
+  }
+
   // Starfish Bay Marina Wooden Superyacht Piers
-  for (const pierY of [690, 920, 1620, 2140]) {
+  for (const pierY of [690, 1140, 1620, 2140, 3020, 3860]) {
     const pierMesh = new THREE.Mesh(
       new THREE.BoxGeometry(210, 2.2, 22),
       lib.boardwalkMaterial
@@ -311,22 +393,100 @@ export function createWorldRenderer3D(canvas, state) {
     cityGroup.add(iMesh);
   }
 
-  // Multi-Tiered Architectural Buildings & Coastal Hotels
+  // Multi-Tiered Architectural Buildings & Coastal Hotels (culled cleanly beyond 1950u fog horizon)
+  const cullableStatics = [];
   for (const b of cityMap.buildings) {
     const bModel = buildSkyscraperModel3D(b, lib);
     cityGroup.add(bModel);
+    cullableStatics.push({
+      x: b.x + b.w * 0.5,
+      y: b.y + b.h * 0.5,
+      obj: bModel,
+      maxDistSq: 1950 * 1950
+    });
   }
 
-  // Curved 7-Segment Coastal Palm Trees
+  // Curved 7-Segment Coastal Palm Trees (distance-culled beyond 1250u for 60 FPS)
   for (const tree of cityMap.palmTrees) {
     const pModel = buildPalmTreeModel3D(tree, lib);
     cityGroup.add(pModel);
+    cullableStatics.push({ x: tree.x, y: tree.y, obj: pModel, maxDistSq: 1250 * 1250 });
   }
 
   // Solaris Beach Umbrellas & Lifeguard Stations
+  // Solaris Beach Umbrellas, Loungers, Surfboards & Lifeguard Stations
   if (cityMap.beachProps) {
     for (const prop of cityMap.beachProps) {
       cityGroup.add(buildBeachPropModel3D(prop, lib));
+      const m = buildBeachPropModel3D(prop, lib);
+      cityGroup.add(m);
+      cullableStatics.push({ x: prop.x, y: prop.y, obj: m, maxDistSq: 950 * 950 });
+    }
+  }
+
+  // Timber Boardwalk Railings & Marina Pier Dock Bollards (instanced batch)
+  if (cityMap.boardwalkRailings) {
+    cityGroup.add(
+      buildBoardwalkRailingGroup(
+        cityMap.boardwalkRailings,
+        [690, 920, 1620, 2140],
+        COAST_X,
+        BEACH_WIDTH,
+        lib
+      )
+    );
+  }
+
+  // Interactive 3D Shops, Street Food Carts, Vice Armory, 24/7 Mart & Pay-N-Spray Garages
+  const shopModels = [];
+  if (cityMap.shops) {
+    for (const shop of cityMap.shops) {
+      const sModel = buildShopModel3D(shop, lib);
+      cityGroup.add(sModel);
+      shopModels.push({ data: shop, mesh: sModel });
+      cullableStatics.push({ x: shop.x, y: shop.y, obj: sModel, maxDistSq: 980 * 980 });
+    }
+  }
+
+  // Cantilevered Intersection Traffic Lights
+  const trafficLightModels = [];
+  if (cityMap.trafficLights) {
+    for (const tl of cityMap.trafficLights) {
+      const tlModel = buildTrafficLightModel3D(tl, lib);
+      cityGroup.add(tlModel);
+      trafficLightModels.push(tlModel);
+      cullableStatics.push({ x: tl.x, y: tl.y, obj: tlModel, maxDistSq: 880 * 880 });
+    }
+  }
+
+  // Sidewalk Café Patios (bistro tables, chairs, striped umbrellas)
+  if (cityMap.cafePatios) {
+    for (const patio of cityMap.cafePatios) {
+      const m = buildCafePatioModel3D(patio, lib);
+      cityGroup.add(m);
+      cullableStatics.push({ x: patio.x, y: patio.y, obj: m, maxDistSq: 820 * 820 });
+    }
+  }
+
+  // Everyday Urban Street Furniture (hydrants, benches, bus stops, planters, bins, vending)
+  if (cityMap.streetProps) {
+    for (const prop of cityMap.streetProps) {
+      const m = buildStreetPropModel3D(prop, lib);
+      cityGroup.add(m);
+      cullableStatics.push({ x: prop.x, y: prop.y, obj: m, maxDistSq: 780 * 780 });
+    }
+  }
+
+  // Seamless Open-Air 3D CLUB ECLIPSE • 21+ DISCO & VIP PAVILION
+  const clubEclipseMesh = buildClubEclipseModel3D(CLUB_ECLIPSE_BOUNDS, lib);
+  cityGroup.add(clubEclipseMesh);
+
+  // Palm Harbor Docks Container Terminals & Gantry Cranes
+  if (cityMap.harborProps) {
+    for (const hp of cityMap.harborProps) {
+      const m = buildHarborYardModel3D(hp, lib);
+      cityGroup.add(m);
+      cullableStatics.push({ x: hp.x, y: hp.y, obj: m, maxDistSq: 1150 * 1150 });
     }
   }
 
@@ -423,17 +583,19 @@ export function createWorldRenderer3D(canvas, state) {
   const vehicleMeshes = new Map();
   const npcMeshes = new Map();
 
-  // Natural Vice coastal protagonist outfit (muted coral-terracotta linen jacket + warm cream tee)
+  // Natural Vice coastal protagonist outfit (live-updatable via Boutique outfits)
   const playerMesh = buildCharacterModel3D(
     {
-      jacketColor: '#b55649',
-      shirtColor: '#d8d1c5',
-      pantsColor: '#252e3a',
+      jacketColor: state.player.jacketColor || '#b55649',
+      shirtColor: state.player.shirtColor || '#d8d1c5',
+      pantsColor: state.player.pantsColor || '#252e3a',
       skinColor: '#cfa07e',
-      hairColor: '#262220'
+      hairColor: '#262220',
+      hasShades: true
     },
     lib
   );
+  playerMesh.userData.outfitVersion = state.player.outfitVersion || 0;
   scene.add(playerMesh);
 
   const helicopterMesh = buildHelicopterModel3D(lib);
@@ -536,7 +698,77 @@ export function createWorldRenderer3D(canvas, state) {
     }
 
     // Sync 3D Vehicles
+    // Animate subtle rising cooking steam over Street Food Carts
+    for (const sm of shopModels) {
+      const sprites = sm.mesh.userData && sm.mesh.userData.steamSprites;
+      if (!sprites || sprites.length === 0) continue;
+      for (let i = 0; i < sprites.length; i++) {
+        const sp = sprites[i];
+        const cycle = (time * 0.55 + sp.userData.phase) % 1;
+        sp.position.y = 8.4 + cycle * 5.8;
+        sp.material.opacity = Math.sin(cycle * Math.PI) * 0.24;
+        const sc = 2.6 + cycle * 2.2;
+        sp.scale.set(sc, sc, 1);
+      }
+    }
+
+    // Cycle intersection traffic lights smoothly (Green -> Amber -> Red)
+    for (const tlMesh of trafficLightModels) {
+      const ud = tlMesh.userData;
+      const phase = ((time * 0.22 + ud.phaseOffset) % 3 + 3) % 3;
+      const stateIdx = phase < 1.35 ? 2 : phase < 1.65 ? 1 : 0; // 2=green, 1=amber, 0=red
+      if (ud.lastSignalState !== stateIdx) {
+        ud.lastSignalState = stateIdx;
+        for (const m of ud.redLenses) {
+          m.material = stateIdx === 0 ? lib.trafficRedMaterial : lib.trafficOffMaterial;
+        }
+        for (const m of ud.amberLenses) {
+          m.material = stateIdx === 1 ? lib.trafficAmberMaterial : lib.trafficOffMaterial;
+        }
+        for (const m of ud.greenLenses) {
+          m.material = stateIdx === 2 ? lib.trafficGreenMaterial : lib.trafficOffMaterial;
+        }
+      }
+    }
+
+    // Animate Club Eclipse 124 BPM LED disco tiles, spinning DJ turntables & sweeping laser beams
+    if (clubEclipseMesh && clubEclipseMesh.userData) {
+      const beat = Math.floor(time * 2.067); // 124 BPM beat pulse
+      const { discoTiles, discoPalette, turntables, laserBeams } = clubEclipseMesh.userData;
+      if (discoTiles && discoPalette) {
+        for (const tile of discoTiles) {
+          const { gx, gz } = tile.userData;
+          const idx = (gx + gz + beat) % discoPalette.length;
+          tile.material = discoPalette[idx];
+        }
+      }
+      if (turntables) {
+        for (const tt of turntables) {
+          tt.rotation.y = time * 3.8;
+        }
+      }
+      if (laserBeams) {
+        laserBeams.forEach((beam, i) => {
+          beam.rotation.z = Math.sin(time * 1.6 + i * 1.4) * 0.48;
+          beam.rotation.x = Math.cos(time * 1.3 + i * 1.9) * 0.42;
+        });
+      }
+    }
+
+    // Reference point for distance culling (camera override eye or player position)
+    const cullRefX = state.camera.overridePose ? state.camera.overridePose.look[0] : player.x;
+    const cullRefY = state.camera.overridePose ? state.camera.overridePose.look[2] : player.y;
+
+    for (const item of cullableStatics) {
+      const dx = item.x - cullRefX;
+      const dy = item.y - cullRefY;
+      item.obj.visible = dx * dx + dy * dy <= item.maxDistSq;
+    }
+
+    // Sync 3D Vehicles (and distance-cull far-away vehicles for 60 FPS)
+    const activeVehIds = new Set();
     for (const v of vehicles) {
+      activeVehIds.add(v.id);
       let mesh = vehicleMeshes.get(v.id);
       if (!mesh) {
         mesh = buildVehicleModel3D(v, lib);
@@ -544,18 +776,43 @@ export function createWorldRenderer3D(canvas, state) {
         scene.add(mesh);
         vehicleMeshes.set(v.id, mesh);
       }
+      const vdx = v.x - cullRefX;
+      const vdy = v.y - cullRefY;
+      if (v !== player.vehicle && vdx * vdx + vdy * vdy > 980 * 980) {
+        mesh.visible = false;
+        continue;
+      }
+      mesh.visible = true;
 
       if (mesh.userData.lastColor !== v.color) {
         mesh.userData.lastColor = v.color;
         const newPaint = lib.getCarPaintMaterial(v.color);
         mesh.userData.bodyGroup.children[0].material = newPaint;
+        const paintTargets =
+          mesh.userData.paintMeshes || [mesh.userData.bodyGroup.children[0]];
+        for (const pm of paintTargets) {
+          if (pm) pm.material = newPaint;
+        }
       }
 
       syncTransform3D(mesh, v.x, v.y, v.z || 0, v.angle);
 
       const bodyGroup = mesh.userData.bodyGroup;
-      bodyGroup.rotation.x = v.drifting ? v.steerAngle * 0.14 : v.steerAngle * 0.06;
-      bodyGroup.rotation.z = v.nitroActive ? 0.032 : 0;
+      const activeSess = state.nightlife && state.nightlife.session;
+      const isRockingCar =
+        activeSess && activeSess.mode.startsWith('car') && activeSess.vehicle === v;
+      if (isRockingCar) {
+        const sp = activeSess.phase;
+        bodyGroup.position.y = Math.abs(Math.sin(sp)) * 1.65;
+        bodyGroup.rotation.x = Math.sin(sp) * 0.088;
+        bodyGroup.rotation.z = Math.cos(sp * 0.5) * 0.048;
+        if (mesh.userData.steamyGlow) mesh.userData.steamyGlow.visible = true;
+      } else {
+        bodyGroup.position.y = 0;
+        bodyGroup.rotation.x = v.drifting ? v.steerAngle * 0.14 : v.steerAngle * 0.06;
+        bodyGroup.rotation.z = v.nitroActive ? 0.032 : 0;
+        if (mesh.userData.steamyGlow) mesh.userData.steamyGlow.visible = false;
+      }
 
       for (const w of mesh.userData.wheels) {
         if (w.isFront) {
@@ -578,45 +835,168 @@ export function createWorldRenderer3D(canvas, state) {
         mesh.userData.sirenLight.intensity = wanted.stars > 0 ? 7.5 : 2.5;
       }
     }
+    for (const [id, mesh] of vehicleMeshes.entries()) {
+      if (!activeVehIds.has(id)) mesh.visible = false;
+    }
 
-    // Sync 3D Player Character
+    // Sync 3D Player Character & live boutique outfit materials
+    if (playerMesh.userData.outfitVersion !== (player.outfitVersion || 0)) {
+      playerMesh.userData.outfitVersion = player.outfitVersion || 0;
+      if (player.jacketColor) playerMesh.userData.jacketMat.color.set(player.jacketColor);
+      if (player.shirtColor) playerMesh.userData.shirtMat.color.set(player.shirtColor);
+      if (player.pantsColor) playerMesh.userData.pantsMat.color.set(player.pantsColor);
+    }
     if (player.vehicle) {
       playerMesh.visible = false;
     } else {
       playerMesh.visible = true;
-      syncTransform3D(playerMesh, player.x, player.y, 0, player.angle);
-      const swing = Math.sin(player.walkPhase) * 0.55;
-      playerMesh.userData.leftLegPivot.rotation.z = swing;
-      playerMesh.userData.rightLegPivot.rotation.z = -swing;
-      playerMesh.userData.leftArmPivot.rotation.z = -swing * 0.6;
-      playerMesh.userData.rightArmPivot.rotation.z = Math.PI * 0.44;
-      playerMesh.userData.muzzleFlashMesh.visible = player.muzzleTimer > 0;
-      if (player.muzzleTimer > 0) {
-        playerMesh.userData.muzzleFlashMesh.rotation.x += 0.7;
+      const onBoardwalk = player.x >= COAST_X - 32 && player.x <= COAST_X - 4;
+      const nl = state.nightlife;
+      const vipSess = nl && nl.session && nl.session.mode.startsWith('vip') ? nl.session : null;
+
+      if (vipSess) {
+        const pulse = Math.sin(vipSess.phase);
+        syncTransform3D(
+          playerMesh,
+          player.x,
+          player.y + pulse * 0.65,
+          -1.8 + Math.abs(pulse) * 0.45,
+          player.angle
+        );
+        playerMesh.userData.leftLegPivot.rotation.z = 1.15;
+        playerMesh.userData.rightLegPivot.rotation.z = 1.15;
+        playerMesh.userData.leftArmPivot.rotation.z = 1.05 + pulse * 0.22;
+        playerMesh.userData.rightArmPivot.rotation.z = 1.05 - pulse * 0.22;
+        playerMesh.userData.weaponGroup.visible = false;
+        playerMesh.userData.muzzleFlashMesh.visible = false;
+      } else if (nl && nl.dancing) {
+        const dp = nl.dancePhase || time * 6.4;
+        const bounce = Math.abs(Math.sin(dp)) * 1.1;
+        syncTransform3D(
+          playerMesh,
+          player.x,
+          player.y,
+          0.36 + bounce,
+          player.angle + Math.sin(dp * 0.5) * 0.35
+        );
+        playerMesh.userData.leftLegPivot.rotation.z = Math.sin(dp) * 0.42;
+        playerMesh.userData.rightLegPivot.rotation.z = -Math.sin(dp) * 0.42;
+        playerMesh.userData.leftArmPivot.rotation.z = 1.85 + Math.sin(dp) * 0.55;
+        playerMesh.userData.rightArmPivot.rotation.z = 1.85 - Math.sin(dp) * 0.55;
+        playerMesh.userData.weaponGroup.visible = false;
+        playerMesh.userData.muzzleFlashMesh.visible = false;
+      } else {
+        syncTransform3D(playerMesh, player.x, player.y, onBoardwalk ? 0.58 : 0, player.angle);
+        const swing = Math.sin(player.walkPhase) * 0.55;
+        playerMesh.userData.leftLegPivot.rotation.z = swing;
+        playerMesh.userData.rightLegPivot.rotation.z = -swing;
+        playerMesh.userData.leftArmPivot.rotation.z = -swing * 0.6;
+        playerMesh.userData.rightArmPivot.rotation.z = Math.PI * 0.44;
+        playerMesh.userData.weaponGroup.visible = true;
+        playerMesh.userData.muzzleFlashMesh.visible = player.muzzleTimer > 0;
+        if (player.muzzleTimer > 0 && playerMesh.userData.muzzleFlashMesh.material) {
+          playerMesh.userData.muzzleFlashMesh.material.rotation += 0.7;
+        }
       }
     }
 
-    // Sync 3D Pedestrians, Syndicate Guards & Police Officers
+    // Sync 3D Pedestrians, Vendors, Dancers, DJ, Companions, Seated Café Patrons, Joggers & Police
+    const activeNpcIds = new Set();
     for (const npc of pedestrians) {
+      activeNpcIds.add(npc.id);
       let mesh = npcMeshes.get(npc.id);
       if (!mesh) {
         mesh = buildCharacterModel3D(npc, lib);
         scene.add(mesh);
         npcMeshes.set(npc.id, mesh);
       }
-      if (npc.dead) {
+      if (npc.dead || npc.inCar) {
+        mesh.visible = false;
+        continue;
+      }
+      const ndx = npc.x - cullRefX;
+      const ndy = npc.y - cullRefY;
+      if (ndx * ndx + ndy * ndy > 680 * 680) {
         mesh.visible = false;
         continue;
       }
       mesh.visible = true;
-      syncTransform3D(mesh, npc.x, npc.y, 0, npc.angle);
-      const swing = Math.sin(npc.walkPhase) * 0.48;
-      mesh.userData.leftLegPivot.rotation.z = swing;
-      mesh.userData.rightLegPivot.rotation.z = -swing;
-      mesh.userData.leftArmPivot.rotation.z = -swing * 0.5;
-      mesh.userData.rightArmPivot.rotation.z = npc.hostile ? Math.PI * 0.42 : swing * 0.5;
+
+      const vipSess =
+        state.nightlife &&
+        state.nightlife.session &&
+        state.nightlife.session.mode.startsWith('vip') &&
+        state.nightlife.session.partnerNpc === npc
+          ? state.nightlife.session
+          : null;
+
+      if (vipSess) {
+        const pulse = Math.sin(vipSess.phase);
+        syncTransform3D(
+          mesh,
+          npc.x,
+          npc.y - pulse * 0.65,
+          -1.6 + Math.abs(pulse) * 0.55,
+          npc.angle
+        );
+        mesh.userData.leftLegPivot.rotation.z = 1.1;
+        mesh.userData.rightLegPivot.rotation.z = 1.1;
+        mesh.userData.leftArmPivot.rotation.z = 1.15 - pulse * 0.25;
+        mesh.userData.rightArmPivot.rotation.z = 1.15 + pulse * 0.25;
+      } else if (npc.isDancer || npc.role === 'dj') {
+        const dp = npc.walkPhase + time * 6.4;
+        const bounce = Math.abs(Math.sin(dp)) * 0.9;
+        syncTransform3D(
+          mesh,
+          npc.x,
+          npc.y,
+          (npc.z || 0) + bounce,
+          npc.angle + (npc.isDancer ? Math.sin(dp * 0.4) * 0.3 : 0)
+        );
+        mesh.userData.leftLegPivot.rotation.z = npc.isDancer ? Math.sin(dp) * 0.38 : 0;
+        mesh.userData.rightLegPivot.rotation.z = npc.isDancer ? -Math.sin(dp) * 0.38 : 0;
+        mesh.userData.leftArmPivot.rotation.z =
+          npc.role === 'dj' ? 0.9 + Math.sin(dp) * 0.25 : 1.7 + Math.sin(dp) * 0.5;
+        mesh.userData.rightArmPivot.rotation.z =
+          npc.role === 'dj' ? 0.9 - Math.sin(dp) * 0.25 : 1.7 - Math.sin(dp) * 0.5;
+        mesh.userData.headGroup.rotation.y = Math.sin(dp * 0.5) * 0.22;
+      } else if (npc.isSeated && npc.panicTimer <= 0) {
+        const seatDrop = -2.8;
+        syncTransform3D(mesh, npc.x, npc.y, (npc.z || 0) + seatDrop, npc.angle);
+        mesh.userData.leftLegPivot.rotation.z = 1.25;
+        mesh.userData.rightLegPivot.rotation.z = 1.25;
+        const chatWave = Math.sin((npc.idlePhase || 0) + time * 2.2) * 0.16;
+        mesh.userData.leftArmPivot.rotation.z = 0.55 + chatWave;
+        mesh.userData.rightArmPivot.rotation.z = 0.45 - chatWave;
+        mesh.userData.headGroup.rotation.y = Math.sin((npc.idlePhase || 0) * 0.7 + time) * 0.18;
+      } else if (npc.isVendor || npc.role === 'vip_companion') {
+        const duckOffset = npc.duckTimer > 0 ? -3.8 : 0;
+        syncTransform3D(mesh, npc.x, npc.y, (npc.z || 0) + duckOffset, npc.angle);
+        mesh.userData.leftLegPivot.rotation.z = 0;
+        mesh.userData.rightLegPivot.rotation.z = 0;
+        const tend = Math.sin((npc.idlePhase || 0) + time * 2.5) * 0.22;
+        mesh.userData.leftArmPivot.rotation.z = npc.duckTimer > 0 ? 1.1 : 0.35 + tend;
+        mesh.userData.rightArmPivot.rotation.z = npc.duckTimer > 0 ? 1.1 : 0.45 - tend;
+        mesh.userData.headGroup.rotation.y = Math.sin((npc.idlePhase || 0) + time * 1.1) * 0.22;
+      } else {
+        syncTransform3D(mesh, npc.x, npc.y, npc.z || 0, npc.angle);
+        const swingAmp = npc.isJogger || npc.panicTimer > 0 ? 0.68 : 0.46;
+        const swing = Math.sin(npc.walkPhase) * swingAmp;
+        mesh.userData.leftLegPivot.rotation.z = swing;
+        mesh.userData.rightLegPivot.rotation.z = -swing;
+        mesh.userData.leftArmPivot.rotation.z = npc.panicTimer > 0 ? 2.4 : -swing * 0.55;
+        mesh.userData.rightArmPivot.rotation.z = npc.hostile
+          ? Math.PI * 0.42
+          : npc.panicTimer > 0
+            ? 2.2
+            : swing * 0.55;
+        mesh.userData.headGroup.rotation.y = 0;
+      }
       mesh.userData.weaponGroup.visible = Boolean(npc.hasWeapon);
       mesh.userData.muzzleFlashMesh.visible = npc.muzzleTimer > 0;
+    }
+    for (const [id, mesh] of npcMeshes.entries()) {
+      if (!activeNpcIds.has(id)) mesh.visible = false;
     }
 
     // Sync Airborne VCPD Helicopter & Soft Street Searchlight Pool
@@ -628,7 +1008,6 @@ export function createWorldRenderer3D(canvas, state) {
       helicopterMesh.userData.mainRotor.rotation.y = heli.rotorAngle;
       helicopterMesh.userData.tailRotor.rotation.z = heli.rotorAngle * 1.6;
 
-      // Project subtle light pool onto the road directly below searchlight beam aim point
       const beamForward = Math.tan(0.24) * (heli.z || 115) + 14;
       heliLightPool.visible = true;
       heliLightPool.position.set(
@@ -652,7 +1031,7 @@ export function createWorldRenderer3D(canvas, state) {
       missionBeaconGroup.visible = false;
     }
 
-    // Place subtle asphalt-flush GPS road chevrons ahead of the player (strictly avoiding car clipping!)
+    // Place subtle asphalt-flush GPS road chevrons ahead of the player
     for (const c of gpsChevrons) c.visible = false;
     if (missions.gpsPoints && missions.gpsPoints.length >= 2) {
       let cIdx = 0;
@@ -665,7 +1044,6 @@ export function createWorldRenderer3D(canvas, state) {
         for (let d = 70; d < segLen && cIdx < gpsChevrons.length; d += 92) {
           const cx = pA.x + Math.cos(ang) * d;
           const cy = pA.y + Math.sin(ang) * d;
-          // Never clip into player's car or immediate footprint
           if (Math.hypot(cx - player.x, cy - player.y) < 88) continue;
           const chev = gpsChevrons[cIdx++];
           chev.visible = true;
@@ -691,7 +1069,7 @@ export function createWorldRenderer3D(canvas, state) {
       m.scale.set(s, s, s);
     }
 
-    // Sync Layered 3D Particles using soft wispy billboard sprites (zero hard grey circles!)
+    // Sync Layered 3D Particles
     for (const sp of spriteParticlePool) sp.visible = false;
     for (const rm of ringParticlePool) rm.visible = false;
     let spIdx = 0;
@@ -730,7 +1108,7 @@ export function createWorldRenderer3D(canvas, state) {
         sp.material.map = lib.softPuffTex;
         const fScale = pt.size * (2.2 + progress * 0.9);
         sp.scale.set(fScale, fScale, 1);
-        sp.material.opacity = (1 - progress * 0.8) * 0.90;
+        sp.material.opacity = (1 - progress * 0.8) * 0.9;
         sp.material.blending = THREE.NormalBlending;
         sp.renderOrder = 5;
       } else if (pt.kind === 'smoke_heavy') {
@@ -748,7 +1126,6 @@ export function createWorldRenderer3D(canvas, state) {
         sp.material.blending = THREE.AdditiveBlending;
         sp.renderOrder = 7;
       } else {
-        // Subtle wispy light-grey tire drift smoke
         sp.material.map = lib.softPuffTex;
         const sScale = pt.size * (2.6 + progress * 1.4);
         sp.scale.set(sScale, sScale, 1);
@@ -771,35 +1148,65 @@ export function createWorldRenderer3D(canvas, state) {
       m.rotation.y = (pk.phase || 0) * 1.2;
     }
 
-    // Update 3D Chase Camera or Showcase Camera Pose
-    if (state.camera.overridePose) {
-      const pose = state.camera.overridePose;
+    // Update 3D Chase Camera, Smart Indoor Shop Camera, Nightlife Camera, or Showcase Pose
+    const activePose = state.camera.overridePose || state.camera.nightlifePose;
+    if (activePose) {
+      const pose = activePose;
       camera.position.set(pose.eye[0], pose.eye[1], pose.eye[2]);
       camera.lookAt(pose.look[0], pose.look[1], pose.look[2]);
       camera.fov = pose.fov || 58;
       camera.updateProjectionMatrix();
 
-      // Anchor shadow frustum cleanly on the foreground focal point in front of the camera
       shadowFocus.set(
         pose.eye[0] + (pose.look[0] - pose.eye[0]) * 0.52,
         0,
         pose.eye[2] + (pose.look[2] - pose.eye[2]) * 0.52
       );
+      state.camera.indoorMode = state.camera.nightlifePose ? 'nightlife' : 'showcase';
     } else {
       const heading = player.vehicle ? player.vehicle.angle : player.angle;
       const spd = player.vehicle ? player.vehicle.speed : 0;
-      const distBack = player.vehicle ? 116 + Math.min(28, spd * 0.065) : 88;
-      const camHeight = player.vehicle ? 46 + Math.min(12, spd * 0.03) : 38;
+      const insideShop = getActiveWalkInShopAt(player.x, player.y, cityMap.shops);
+      const inClub = isInsideClubEclipse(player.x, player.y);
+
+      let distBack = player.vehicle ? 116 + Math.min(28, spd * 0.065) : 88;
+      let camHeight = player.vehicle ? 46 + Math.min(12, spd * 0.03) : 38;
+      let lookAhead = 62;
+      let lookHeight = player.vehicle ? 18 : 15;
+
+      if (insideShop) {
+        const ib = insideShop.interior;
+        distBack = player.vehicle ? 42 : 28;
+        camHeight = player.vehicle
+          ? Math.min(ib.ceilingH - 8, 20)
+          : Math.min(ib.ceilingH - 9, 17.5);
+        lookAhead = 22;
+        lookHeight = 11.5;
+        state.camera.indoorMode = 'shop';
+      } else if (inClub) {
+        distBack = 58;
+        camHeight = 26;
+        lookAhead = 40;
+        lookHeight = 13;
+        state.camera.indoorMode = 'club';
+      } else {
+        state.camera.indoorMode = 'outdoor';
+      }
 
       const desiredEye = new THREE.Vector3(
         player.x - Math.cos(heading) * distBack,
         camHeight,
         player.y - Math.sin(heading) * distBack
       );
+      if (insideShop && insideShop.interior) {
+        const ib = insideShop.interior;
+        desiredEye.z = Math.max(ib.y1 + 5, Math.min(ib.y2 - 5, desiredEye.z));
+      }
+
       const desiredLook = new THREE.Vector3(
-        player.x + Math.cos(heading) * 62,
-        player.vehicle ? 18 : 15,
-        player.y + Math.sin(heading) * 62
+        player.x + Math.cos(heading) * lookAhead,
+        lookHeight,
+        player.y + Math.sin(heading) * lookAhead
       );
 
       if (!camInitialized) {
@@ -824,7 +1231,6 @@ export function createWorldRenderer3D(canvas, state) {
       camera.fov += (targetFov - camera.fov) * Math.min(1, 6 * dt);
       camera.updateProjectionMatrix();
 
-      // Anchor shadow frustum ahead of the player for crisp foreground shadows
       shadowFocus.set(
         player.x + Math.cos(heading) * 38,
         0,
@@ -848,8 +1254,9 @@ export function createWorldRenderer3D(canvas, state) {
     // Render WebGL 2.0 3D frame
     renderer.render(scene, camera);
 
-    // Project 3D world waypoints to 2D screen coordinates for the diegetic HUD
+    // Project 3D world waypoints, nearby vehicles, interactive shops & nightlife targets
     const nearestCar = findNearestHijackableVehicle(player, vehicles, 85);
+    const nearestShop = findNearestShop(state);
     state.projectedMarkers = {
       missionTarget: activeMission
         ? projectWorldToScreen(activeMission.targetX, 30, activeMission.targetY)
@@ -860,6 +1267,33 @@ export function createWorldRenderer3D(canvas, state) {
             screen: projectWorldToScreen(nearestCar.x, nearestCar.height + 11, nearestCar.y)
           }
         : null,
+      shopTarget: nearestShop
+        ? {
+            shop: nearestShop,
+            screen: projectWorldToScreen(
+              nearestShop.x,
+              (nearestShop.z || 0) + (nearestShop.variant === 'cart' ? 19.5 : 23),
+              nearestShop.y
+            )
+          }
+        : null,
+      vipTarget:
+        state.nightlife && state.nightlife.nearVipLounge
+          ? {
+              screen: projectWorldToScreen(CLUB_ECLIPSE_BOUNDS.vipX, 20, CLUB_ECLIPSE_BOUNDS.vipY)
+            }
+          : null,
+      companionTarget:
+        state.nightlife && state.nightlife.nearCompanion
+          ? {
+              npc: state.nightlife.nearCompanion,
+              screen: projectWorldToScreen(
+                state.nightlife.nearCompanion.x,
+                21,
+                state.nightlife.nearCompanion.y
+              )
+            }
+          : null,
       convoyBoss:
         missions.targetEntity && !missions.targetEntity.destroyed
           ? {
@@ -873,26 +1307,27 @@ export function createWorldRenderer3D(canvas, state) {
           : null
     };
 
-    if (typeof window !== 'undefined') {
-      window.__SOLARIS_DIAGNOSTICS = {
-        engine: 'Three.js r183 WebGL 2.0',
-        webgl2: renderer.capabilities.isWebGL2,
-        toneMapping: renderer.toneMapping,
-        exposure: renderer.toneMappingExposure,
-        drawCalls: renderer.info.render.calls,
-        triangles: renderer.info.render.triangles,
-        geometries: renderer.info.memory.geometries,
-        textures: renderer.info.memory.textures,
-        shadowMap: renderer.shadowMap.enabled
-      };
+      if (typeof window !== 'undefined') {
+        window.__SOLARIS_SCENE = scene;
+        window.__SOLARIS_DIAGNOSTICS = {
+          engine: 'Three.js r183 WebGL 2.0',
+          webgl2: renderer.capabilities.isWebGL2,
+          toneMapping: renderer.toneMapping,
+          exposure: renderer.toneMappingExposure,
+          drawCalls: renderer.info.render.calls,
+          triangles: renderer.info.render.triangles,
+          geometries: renderer.info.memory.geometries,
+          textures: renderer.info.memory.textures,
+          shadowMap: renderer.shadowMap.enabled
+        };
+      }
     }
-  }
 
-  return {
-    renderer,
-    scene,
-    camera,
-    lib,
-    render
-  };
-}
+    return {
+      renderer,
+      scene,
+      camera,
+      lib,
+      render
+    };
+  }

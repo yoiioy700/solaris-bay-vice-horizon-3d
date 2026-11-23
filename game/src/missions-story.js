@@ -89,7 +89,7 @@ export function createMissionState() {
 
 export function startMissionByIndex(state, idx) {
   const clamped = Math.max(0, Math.min(STORY_MISSIONS.length - 1, idx));
-  const mission = STORY_MISSIONS[clamped];
+  const mission = { ...STORY_MISSIONS[clamped] };
   state.missions.currentIndex = clamped;
   state.missions.activeMission = mission;
   state.missions.targetEntity = null;

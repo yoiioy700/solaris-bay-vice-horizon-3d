@@ -4,10 +4,11 @@ import { startMissionByIndex } from './missions-story.js';
 import { triggerExplosion } from './combat-weapons.js';
 import { saveCareerToStorage } from './audio-save.js';
 
-function clearBackgroundVehiclesNear(vehicles, cx, cy, radius, keepVehicle = null) {
+function clearBackgroundVehiclesNear(vehicles, cx, cy, radius, keepVehicle = null, keepCurbParked = false) {
   for (let i = vehicles.length - 1; i >= 0; i--) {
     const v = vehicles[i];
     if (v === keepVehicle) continue;
+    if (keepCurbParked && v.isCurbParked) continue;
     if (Math.hypot(v.x - cx, v.y - cy) < radius) {
       vehicles.splice(i, 1);
     }
@@ -23,10 +24,10 @@ export function applyShowcaseShotIfRequested(state) {
   const { player, vehicles, pedestrians, wanted, projectiles, particles } = state;
 
   if (shot === 'chase') {
-    // Shot 1: 4-Star Sunset Supercar & Police Chopper Pursuit on Ocean Drive
+    // Shot 1: 4-Star Sunset Supercar & Police Chopper Pursuit on a BUSTLING Ocean Drive
     startMissionByIndex(state, 0);
     const heroCar = vehicles[0];
-    clearBackgroundVehiclesNear(vehicles, 2714, 2000, 320, heroCar);
+    clearBackgroundVehiclesNear(vehicles, 2720, 1980, 320, heroCar, true);
 
     heroCar.x = 2722;
     heroCar.y = 2042;
@@ -50,31 +51,70 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.heat = 720;
     wanted.sirenTimer = 0.4;
 
-    // Pursuing VCPD Interceptor in adjacent left lane slightly ahead/beside hero supercar (100% visible, no bottom clipping)
-    const cop1 = createVehicle('police_cruiser', 2682, 1998, -Math.PI * 0.48, {
+    // Pursuing VCPD Interceptors framing the supercar cleanly
+    const cop1 = createVehicle('police_cruiser', 2690, 1995, -Math.PI * 0.48, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
     cop1.speed = 355;
     cop1.sirenPhase = 0.6;
 
-    // Second VCPD Interceptor further ahead angling across the avenue
-    const cop2 = createVehicle('police_cruiser', 2744, 1912, -Math.PI * 0.58, {
+    const cop2 = createVehicle('police_cruiser', 2736, 1916, -Math.PI * 0.56, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
     cop2.speed = 345;
     cop2.sirenPhase = 3.6;
 
-    // Oncoming cyan sports roadster in the far lane
-    const cabrio = createVehicle('comet_cabrio', 2686, 1838, Math.PI * 0.5, {
+    // Iconic yellow Solaris City Cab & sports roadster further up Ocean Drive
+    const taxiAhead = createVehicle('city_taxi', 2696, 1848, Math.PI * 0.5, {
       aiRole: 'traffic'
     });
-    cabrio.speed = 180;
+    taxiAhead.speed = 140;
 
-    vehicles.push(cop1, cop2, cabrio);
+    const cabrioAhead = createVehicle('comet_cabrio', 2734, 1795, -Math.PI * 0.5, {
+      aiRole: 'traffic'
+    });
+    cabrioAhead.speed = 190;
 
-    // Airborne 3D VCPD Police Helicopter ahead in the upper sunset sky sweeping its searchlight cone
+    vehicles.push(cop1, cop2, taxiAhead, cabrioAhead);
+
+    // Extra lively pedestrians along Ocean Drive cafés, Solaris Tacos cart & boardwalk joggers
+    pedestrians.push(
+      createPedestrian(2666, 2046, 'civilian', {
+        angle: -Math.PI * 0.2,
+        accessory: 'shopping_bag',
+        hat: 'sunhat',
+        bagColor: '#c46f5c'
+      }),
+      createPedestrian(2667, 2064, 'civilian', {
+        angle: -Math.PI * 0.5,
+        accessory: 'backpack',
+        hat: 'cap'
+      }),
+      createPedestrian(2666, 1994, 'civilian', {
+        angle: Math.PI * 0.5,
+        accessory: 'shopping_bag',
+        bagColor: '#4c868c'
+      }),
+      createPedestrian(2756, 2012, 'jogger', {
+        z: 0.58,
+        angle: -Math.PI * 0.5,
+        walkPhase: 1.4
+      }),
+      createPedestrian(2761, 1940, 'civilian', {
+        z: 0.58,
+        angle: Math.PI * 0.5,
+        hat: 'sunhat',
+        accessory: 'shopping_bag'
+      }),
+      createPedestrian(2824, 1985, 'beachgoer', {
+        angle: -Math.PI * 0.35,
+        hat: 'sunhat'
+      })
+    );
+
+    // Airborne 3D VCPD Police Helicopter ahead sweeping its translucent searchlight
     wanted.helicopter.active = true;
     wanted.helicopter.x = 2675;
     wanted.helicopter.y = 1865;
@@ -82,7 +122,7 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.helicopter.angle = Math.PI * 0.48;
     wanted.helicopter.rotorAngle = 0.75;
 
-    // Crisp, subtle tire-level drift wisps that leave the rear bumper, spoiler, exhausts & nitro flames 100% sharp
+    // Subtle tire-level drift wisps leaving rear bumper, exhausts & nitro flames crisp
     for (let i = 0; i < 8; i++) {
       const side = i % 2 === 0 ? -10 : 10;
       particles.push({
@@ -100,16 +140,16 @@ export function applyShowcaseShotIfRequested(state) {
       });
     }
 
-    // Cinematic low-angle 3D chase camera looking north up Ocean Drive toward HOTEL SOLARIS, palm trees & chopper
+    // Low-angle 3D chase camera framing bustling Ocean Drive sidewalks, cafés, Solaris Tacos, palms & beach
     state.camera.overridePose = {
-      eye: [2722, 33, 2152],
-      look: [2698, 28, 1890],
-      fov: 60
+      eye: [2720, 34, 2154],
+      look: [2696, 26, 1890],
+      fov: 61
     };
   } else if (shot === 'hijack') {
-    // Shot 2: On-Foot 3D Carjacking & Street Gunfight in Vice Neon Strip
+    // Shot 2: On-Foot 3D Carjacking & Street Gunfight in Lively Vice Neon Strip (Vice Armory + Vice Burger)
     startMissionByIndex(state, 1);
-    clearBackgroundVehiclesNear(vehicles, 1856, 1740, 320);
+    clearBackgroundVehiclesNear(vehicles, 1856, 1740, 260, null, true);
 
     player.vehicle = null;
     player.x = 1844;
@@ -122,20 +162,21 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.stars = 2;
     wanted.heat = 280;
 
-    // Convertible Comet GT Cabrio cleanly parked on the right lane ready to carjack (zero overlap!)
+    // Convertible Comet GT Cabrio ready to carjack + Muscle Car + VCPD Cruiser + Yellow Cab upstreet
     const targetCabrio = createVehicle('comet_cabrio', 1874, 1766, -Math.PI * 0.56, {
       aiRole: 'parked'
     });
-    // Orange Stinger 426 Hemi Muscle Car cleanly separated in the left lane 62 units away
-    const neonMuscle = createVehicle('stinger_muscle', 1814, 1718, Math.PI * 0.45, {
+    const neonMuscle = createVehicle('stinger_muscle', 1824, 1718, Math.PI * 0.45, {
       aiRole: 'parked'
     });
-    // VCPD Interceptor responding up the avenue
     const copInterceptor = createVehicle('police_cruiser', 1868, 1648, Math.PI * 0.62, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
-    vehicles.push(targetCabrio, neonMuscle, copInterceptor);
+    const taxiUpstreet = createVehicle('city_taxi', 1838, 1592, Math.PI * 0.5, {
+      aiRole: 'traffic'
+    });
+    vehicles.push(targetCabrio, neonMuscle, copInterceptor, taxiUpstreet);
 
     // Syndicate Enforcers exchanging gunfire with player
     const guard1 = createPedestrian(1846, 1706, 'syndicate');
@@ -146,9 +187,28 @@ export function applyShowcaseShotIfRequested(state) {
     guard2.angle = Math.PI * 0.58;
     guard2.muzzleTimer = 0.08;
 
-    pedestrians.push(guard1, guard2);
+    // Startled bystanders ducking/fleeing along the Vice Burger & Vice Armory sidewalks
+    const bystander1 = createPedestrian(1802, 1762, 'civilian', {
+      angle: Math.PI * 0.72,
+      panicTimer: 4.0,
+      walkPhase: 2.1,
+      accessory: 'shopping_bag'
+    });
+    const bystander2 = createPedestrian(1908, 1746, 'civilian', {
+      angle: -Math.PI * 0.25,
+      panicTimer: 3.5,
+      walkPhase: 1.2,
+      accessory: 'backpack'
+    });
+    const bystander3 = createPedestrian(1804, 1690, 'civilian', {
+      angle: -Math.PI * 0.65,
+      panicTimer: 4.5,
+      walkPhase: 0.9,
+      hat: 'cap'
+    });
+    pedestrians.push(guard1, guard2, bystander1, bystander2, bystander3);
 
-    // 3D Warm Ballistic Bullet Tracers in mid-air
+    // Warm ballistic bullet tracers in mid-air
     for (let i = 0; i < 5; i++) {
       projectiles.push({
         x: player.x + 4 + i * 1.5,
@@ -164,16 +224,16 @@ export function applyShowcaseShotIfRequested(state) {
     }
 
     state.camera.overridePose = {
-      eye: [1828, 30, 1864],
-      look: [1860, 24, 1705],
-      fov: 58
+      eye: [1832, 31, 1868],
+      look: [1860, 22, 1706],
+      fov: 60
     };
   } else if (shot === 'heist') {
-    // Shot 3: 5-Star Story Heist: Federal Reserve Convoy Ambush in Downtown Vice Plaza
+    // Shot 3: 5-Star Story Heist in Bustling Downtown Vice Plaza (Palm 24/7 Mart, Café, Bus Stop & Traffic Lights)
     startMissionByIndex(state, 4);
     const heroCar = vehicles[0];
     const convoy = state.missions.targetEntity;
-    clearBackgroundVehiclesNear(vehicles, 1216, 810, 320, heroCar);
+    clearBackgroundVehiclesNear(vehicles, 1216, 810, 260, heroCar, true);
     if (convoy && !vehicles.includes(convoy)) {
       vehicles.push(convoy);
     }
@@ -196,7 +256,6 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.heat = 980;
     wanted.sirenTimer = 0.3;
 
-    // Position the Armored Syndicate Goliath Bullion Convoy & SWAT Bearcat roadblock ahead
     if (convoy) {
       convoy.x = 1216;
       convoy.y = 768;
@@ -208,18 +267,46 @@ export function applyShowcaseShotIfRequested(state) {
       }
     }
 
-    const swat1 = createVehicle('swat_van', 1168, 788, 0.35, {
+    const swat1 = createVehicle('swat_van', 1178, 790, 0.35, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
-    const cop1 = createVehicle('police_cruiser', 1262, 794, -2.6, {
+    const cop1 = createVehicle('police_cruiser', 1256, 794, -2.6, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
-    vehicles.push(swat1, cop1);
+    const plazaVan = createVehicle('delivery_van', 1196, 650, Math.PI * 0.5, {
+      aiRole: 'traffic'
+    });
+    vehicles.push(swat1, cop1, plazaVan);
 
     // Trigger dramatic layered 3D Explosion Fireball & Charcoal Smoke Plumes next to the convoy
-    triggerExplosion(state, 1236, 778, 8, 110, 120);
+    triggerExplosion(state, 1236, 778, 8, 95, 110);
+    // Keep foreground sidewalk spotless (no stray dropped cash octahedrons from staged blast)
+    state.pickups.length = 0;
+
+    // Startled Downtown office commuters & shoppers fleeing cleanly on both sidewalks
+    pedestrians.push(
+      createPedestrian(1162, 852, 'civilian', {
+        angle: Math.PI * 0.6,
+        panicTimer: 5.0,
+        walkPhase: 1.5,
+        accessory: 'backpack'
+      }),
+      createPedestrian(1271, 848, 'civilian', {
+        angle: Math.PI * 0.35,
+        panicTimer: 5.0,
+        walkPhase: 2.4,
+        accessory: 'shopping_bag',
+        bagColor: '#5eb3aa'
+      }),
+      createPedestrian(1270, 728, 'civilian', {
+        angle: -Math.PI * 0.3,
+        panicTimer: 4.2,
+        walkPhase: 0.7,
+        hat: 'cap'
+      })
+    );
 
     // Airborne 5-Star Police Chopper hovering above Downtown Plaza
     wanted.helicopter.active = true;
@@ -229,12 +316,12 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.helicopter.angle = Math.PI * 0.45;
 
     state.camera.overridePose = {
-      eye: [1192, 36, 956],
-      look: [1218, 28, 750],
-      fov: 60
+      eye: [1196, 36, 954],
+      look: [1222, 24, 752],
+      fov: 61
     };
   } else if (shot === 'safehouse') {
-    // Shot 4: Starfish Marina Safehouse Villa & Persistent Career Dossier
+    // Shot 4: Starfish Marina Safehouse Villa, Living Boardwalk, Tropical Juice Bar & Persistent Career Dossier
     state.missions.completedIds = [
       'm1_neon_courier',
       'm2_chrome_hijack',
@@ -245,23 +332,28 @@ export function applyShowcaseShotIfRequested(state) {
     startMissionByIndex(state, 5);
 
     const heroCar = vehicles[0];
-    clearBackgroundVehiclesNear(vehicles, 2720, 810, 320, heroCar);
+    clearBackgroundVehiclesNear(vehicles, 2720, 810, 260, heroCar, true);
 
-    heroCar.x = 2700;
-    heroCar.y = 838;
-    heroCar.angle = -Math.PI * 0.42;
+    // Park hero supercar & roadster cleanly along Ocean Drive, leaving boardwalk & Tropical Juice Bar front and center
+    heroCar.x = 2694;
+    heroCar.y = 842;
+    heroCar.angle = -Math.PI * 0.46;
     heroCar.speed = 0;
     heroCar.nitroActive = false;
 
-    const parkedCabrio = createVehicle('comet_cabrio', 2746, 768, -Math.PI * 0.56, {
+    const parkedCabrio = createVehicle('comet_cabrio', 2714, 738, -Math.PI * 0.54, {
       aiRole: 'parked'
     });
-    vehicles.push(parkedCabrio);
+    const marinaTaxi = createVehicle('city_taxi', 2684, 672, Math.PI * 0.5, {
+      aiRole: 'traffic'
+    });
+    vehicles.push(parkedCabrio, marinaTaxi);
 
+    // Position player right on the Marina Boardwalk facing Tropical Juice Bar (triggers diegetic [E] shop prompt!)
     player.vehicle = null;
-    player.x = 2724;
-    player.y = 842;
-    player.angle = -Math.PI * 0.35;
+    player.x = 2742;
+    player.y = 812;
+    player.angle = -Math.PI * 0.12;
     player.cash = 385000;
     player.armor = 100;
     player.hp = 100;
@@ -270,15 +362,39 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.heat = 0;
     wanted.helicopter.active = false;
 
+    // Lively Marina Boardwalk tourists, beachgoers & joggers framing the left side of the screen
+    pedestrians.push(
+      createPedestrian(2756, 774, 'civilian', {
+        z: 0.58,
+        angle: Math.PI * 0.45,
+        hat: 'sunhat',
+        accessory: 'shopping_bag',
+        bagColor: '#c46f5c'
+      }),
+      createPedestrian(2754, 836, 'civilian', {
+        z: 0.58,
+        angle: -Math.PI * 0.4,
+        accessory: 'backpack',
+        hat: 'cap'
+      }),
+      createPedestrian(2815, 792, 'beachgoer', {
+        angle: -Math.PI * 0.3,
+        hat: 'sunhat'
+      }),
+      createPedestrian(2838, 742, 'beachgoer', {
+        angle: Math.PI * 0.65
+      })
+    );
+
     state.safehouseModalOpen = true;
     saveCareerToStorage(state);
     state.hudBanner = null;
 
-    // Frame the 3D Starfish Marina waterfront, supercars, palm trees, golden beach, turquoise ocean & superyacht on the left half
+    // Frame the vibrant Starfish Marina waterfront, Tropical Juice Bar + vendor, boardwalk locals, beach & yachts
     state.camera.overridePose = {
-      eye: [2618, 49, 940],
-      look: [2920, 14, 730],
-      fov: 58
+      eye: [2620, 46, 926],
+      look: [2868, 14, 738],
+      fov: 59
     };
   }
 

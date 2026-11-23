@@ -1,7 +1,8 @@
 import { WEAPONS } from './config.js';
 import { pointInBuilding, resolveCircleBuildingCollisions } from './city-map.js';
-import { damagePedestrian } from './pedestrians.js';
+import { damagePedestrian, alertNearbyCivilians } from './pedestrians.js';
 import { addCrimeHeat } from './police-wanted.js';
+import { createInitialWeaponAmmo } from './shops-economy.js';
 
 export function updatePlayerOnFoot(state, dt) {
   const { player, input, cityMap } = state;
@@ -10,6 +11,18 @@ export function updatePlayerOnFoot(state, dt) {
   player.dashCooldown = Math.max(0, player.dashCooldown - dt);
 
   if (player.vehicle) return;
+
+  // Pause movement cleanly while Shop Drawer, Nightlife Menu/Session, or Safehouse Dossier is open
+  if (
+    (state.shopModal && state.shopModal.open) ||
+    state.safehouseModalOpen ||
+    (state.nightlife &&
+      (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen || state.nightlife.session))
+  ) {
+    player.vx *= 0.6;
+    player.vy *= 0.6;
+    return;
+  }
 
   const moveX =
     (input.keys.KeyD || input.keys.ArrowRight ? 1 : 0) -
@@ -42,18 +55,43 @@ export function updatePlayerOnFoot(state, dt) {
     player.angle = input.aimAngle;
   }
 
-  resolveCircleBuildingCollisions(player, 9, cityMap.buildings);
+  resolveCircleBuildingCollisions(player, 9, cityMap.colliders || cityMap.buildings);
 }
 
 export function firePlayerWeapon(state) {
   const { player, projectiles, particles } = state;
-  if (player.fireCooldown > 0) return;
+  if (
+    (state.shopModal && state.shopModal.open) ||
+    state.safehouseModalOpen ||
+    (state.nightlife &&
+      (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen || state.nightlife.session))
+  ) {
+    return false;
+  }
+  if (player.fireCooldown > 0) return false;
 
   const weapon = WEAPONS[player.weaponIndex] || WEAPONS[0];
+  if (!player.weaponAmmo) {
+    player.weaponAmmo = createInitialWeaponAmmo();
+  }
+  const currentAmmo = player.weaponAmmo[weapon.id] ?? weapon.ammo;
+  if (currentAmmo <= 0) {
+    player.fireCooldown = 0.35;
+    state.hudBanner = {
+      title: `${weapon.shortName} OUT OF AMMO`,
+      subtitle: 'VISIT VICE ARMORY • GUNS & GEAR TO RESTOCK [E]',
+      color: '#d97c5b',
+      timer: 2.2
+    };
+    if (state.audio && state.audio.playErrorTone) state.audio.playErrorTone();
+    return false;
+  }
+
+  player.weaponAmmo[weapon.id] = Math.max(0, currentAmmo - 1);
   player.fireCooldown = weapon.fireRate;
   player.muzzleTimer = 0.09;
 
-  const aimAngle = player.angle;
+  const aimAngle = Number.isFinite(player.angle) ? player.angle : -Math.PI * 0.5;
   const originDist = player.vehicle ? 26 : 15;
   const ox = player.x + Math.cos(aimAngle) * originDist;
   const oy = player.y + Math.sin(aimAngle) * originDist;
@@ -76,6 +114,9 @@ export function firePlayerWeapon(state) {
     });
   }
 
+  // Nearby civilians realistically flee & vendors duck behind counters on gunshots
+  alertNearbyCivilians(state, ox, oy, 280);
+
   // Muzzle flash sparks
   for (let i = 0; i < 5; i++) {
     const spAngle = aimAngle + (Math.random() - 0.5) * 0.5;
@@ -96,6 +137,7 @@ export function firePlayerWeapon(state) {
 
   state.camera.trauma = Math.min(1, state.camera.trauma + (weapon.explosiveRadius ? 0.28 : 0.07));
   if (state.audio) state.audio.playShot(weapon.id);
+  return true;
 }
 
 export function triggerExplosion(state, x, y, z = 8, radius = 115, maxDamage = 260) {
@@ -217,6 +259,13 @@ export function triggerExplosion(state, x, y, z = 8, radius = 115, maxDamage = 2
         v.destroyed = true;
         v.color = '#1e293b';
         v.stripeColor = '#334155';
+        if (player.vehicle === v) {
+          player.vehicle = null;
+          v.driver = null;
+          player.x = v.x + 28;
+          player.y = v.y;
+          resolveCircleBuildingCollisions(player, 9, state.cityMap.buildings);
+        }
         addCrimeHeat(state, v.isPolice ? 160 : 85, 'VEHICLE DESTROYED IN BLAST');
       }
     }
@@ -242,7 +291,7 @@ export function triggerExplosion(state, x, y, z = 8, radius = 115, maxDamage = 2
 export function updateCombatAndProjectiles(state, dt) {
   const { projectiles, particles, cityMap, vehicles, pedestrians, player, input } = state;
 
-  if (input.mouseDown) {
+  if (input.mouseDown && !(state.shopModal && state.shopModal.open) && !state.safehouseModalOpen) {
     firePlayerWeapon(state);
   }
 
@@ -277,8 +326,8 @@ export function updateCombatAndProjectiles(state, dt) {
       });
     }
 
-    // Check building impact
-    if (pointInBuilding(proj.x, proj.y, cityMap.buildings, 2)) {
+    // Check building / carved interior wall impact
+    if (pointInBuilding(proj.x, proj.y, cityMap.colliders || cityMap.buildings, 2)) {
       if (proj.explosiveRadius > 0) {
         triggerExplosion(state, proj.x, proj.y, proj.z, proj.explosiveRadius, proj.damage);
       } else {
@@ -350,8 +399,9 @@ export function updateCombatAndProjectiles(state, dt) {
         }
       }
     } else {
-      // Enemy projectile hitting player or player vehicle
-      if (Math.hypot(player.x - proj.x, player.y - proj.y) < 18) {
+      // Enemy projectile hitting player or player vehicle (blocked during locked private nightlife sessions)
+      const inPrivateSession = Boolean(state.nightlife && state.nightlife.session);
+      if (!inPrivateSession && Math.hypot(player.x - proj.x, player.y - proj.y) < 18) {
         if (player.vehicle) {
           player.vehicle.hp = Math.max(25, player.vehicle.hp - proj.damage * 0.5);
         } else if (player.armor > 0) {

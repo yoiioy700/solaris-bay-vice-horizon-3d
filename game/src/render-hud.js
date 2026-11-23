@@ -1,6 +1,12 @@
-import { WEAPONS, RADIO_STATIONS, COAST_X } from './config.js';
+import { WEAPONS, RADIO_STATIONS, COAST_X, ISLAND_X1, ISLAND_X2, ISLAND_Y1, ISLAND_Y2, CAUSEWAY_YS } from './config.js';
 import { getDistrictAt } from './city-map.js';
 import { STORY_MISSIONS } from './missions-story.js';
+import {
+  SHOP_RADAR_COLORS,
+  getShopDrawerLayout,
+  findTargetVehicleForGarage
+} from './shops-economy.js';
+import { CLUB_ECLIPSE_BOUNDS, getNightlifeMenuLayout } from './nightlife-romance.js';
 
 const GLASS_BG = 'rgba(12, 17, 25, 0.78)';
 const GLASS_BG_STRONG = 'rgba(12, 17, 25, 0.86)';
@@ -79,12 +85,25 @@ export function renderHud2D(ctx, state) {
     renderCenterEventBanner(ctx, state.hudBanner);
   }
 
-  // 7. Safehouse Career Dossier Modal
+  // 7. Interactive Shop / Vendor Overlay Drawer
+  if (state.shopModal && state.shopModal.open && state.shopModal.shop) {
+    renderShopOverlayDrawer(ctx, state);
+  }
+
+  // 7B. Club Eclipse 21+ VIP Suite / Car Service Menu Drawer & Active Intimate Session Overlay
+  if (state.nightlife && (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen)) {
+    renderNightlifeMenuDrawer(ctx, state);
+  }
+  if (state.nightlife && state.nightlife.session) {
+    renderActiveNightlifeSessionHud(ctx, state);
+  }
+
+  // 8. Safehouse Career Dossier Modal
   if (state.safehouseModalOpen) {
     renderSafehouseDossierModal(ctx, state);
   }
 
-  // 8. Slim Bottom-Edge Control Legend Bar
+  // 9. Slim Bottom-Edge Control Legend Bar
   renderBottomControlStrip(ctx);
 }
 
@@ -126,7 +145,12 @@ function renderDiegeticWorldMarkers(ctx, state) {
   }
 
   // Projected [F] CARJACK prompt above nearest 3D vehicle when on foot
-  if (markers.hijackTarget && markers.hijackTarget.screen) {
+  let hijackPillRect = null;
+  if (
+    markers.hijackTarget &&
+    markers.hijackTarget.screen &&
+    !(state.shopModal && state.shopModal.open)
+  ) {
     const { car, screen } = markers.hijackTarget;
     const { x, y } = screen;
     if (x >= 90 && x <= 1190 && y >= 55 && y <= 650) {
@@ -134,10 +158,13 @@ function renderDiegeticWorldMarkers(ctx, state) {
       ctx.save();
       ctx.font = '700 11px "Segoe UI", sans-serif';
       const w = Math.max(168, ctx.measureText(label).width + 26);
+      const px = x - w * 0.5;
+      const py = y - 34;
+      hijackPillRect = { x: px, y: py, w, h: 25 };
       drawFrostedGlassPanel(
         ctx,
-        x - w * 0.5,
-        y - 34,
+        px,
+        py,
         w,
         25,
         6,
@@ -145,10 +172,91 @@ function renderDiegeticWorldMarkers(ctx, state) {
         'rgba(100, 188, 201, 0.42)'
       );
       ctx.fillStyle = ACCENT_CYAN;
-      ctx.fillRect(x - w * 0.5 + 8, y - 28, 3, 13);
+      ctx.fillRect(px + 8, py + 6, 3, 13);
       ctx.fillStyle = TEXT_PRIMARY;
       ctx.textAlign = 'center';
-      ctx.fillText(label, x + 3, y - 18);
+      ctx.fillText(label, x + 3, py + 16);
+      ctx.restore();
+    }
+  }
+
+  // Projected [E] SHOP / STREET VENDOR prompt pill (anti-overlap protected against [F] CARJACK & Dossier)
+  const nlOpen = Boolean(
+    state.nightlife &&
+      (state.nightlife.vipMenuOpen || state.nightlife.carMenuOpen || state.nightlife.session)
+  );
+  if (markers.shopTarget && !(state.shopModal && state.shopModal.open) && !nlOpen && !markers.vipTarget) {
+    const { shop, screen } = markers.shopTarget;
+    const label = `[E] ${shop.promptShort || shop.name}`;
+    const accent = SHOP_RADAR_COLORS[shop.kind] || ACCENT_GOLD;
+    ctx.save();
+    ctx.font = '700 11px "Segoe UI", sans-serif';
+    const w = Math.max(198, ctx.measureText(label).width + 28);
+
+    const maxSafeX = state.safehouseModalOpen ? 614 : 1245;
+    let px = 640 - w * 0.5;
+    let py = 650;
+
+    if (screen && screen.y >= 78 && screen.y <= 645 && screen.x >= -40 && screen.x <= 1320) {
+      px = Math.max(24, Math.min(maxSafeX - w, screen.x - w * 0.5));
+      py = Math.max(82, screen.y - 34);
+      // Avoid overlapping [F] CARJACK pill if both are nearby
+      if (
+        hijackPillRect &&
+        px < hijackPillRect.x + hijackPillRect.w + 8 &&
+        px + w + 8 > hijackPillRect.x &&
+        py < hijackPillRect.y + hijackPillRect.h + 8 &&
+        py + 26 + 8 > hijackPillRect.y
+      ) {
+        py = Math.max(82, hijackPillRect.y - 36);
+      }
+    } else if (state.safehouseModalOpen) {
+      px = Math.max(24, Math.min(maxSafeX - w, 360 - w * 0.5));
+      py = 310;
+    }
+
+    drawFrostedGlassPanel(ctx, px, py, w, 26, 6, GLASS_BG_STRONG, accent);
+    ctx.fillStyle = accent;
+    ctx.fillRect(px + 8, py + 6, 3, 14);
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, px + w * 0.5 + 3, py + 17);
+    ctx.restore();
+  }
+
+  // Club Eclipse 21+ VIP Private Suite prompt, Disco Dance prompt & Nightlife Companion prompt
+  if (state.nightlife && !nlOpen && !(state.shopModal && state.shopModal.open) && !state.safehouseModalOpen) {
+    const nl = state.nightlife;
+    let promptLabel = null;
+    let promptAccent = '#d97c8c';
+    if (nl.nearVipLounge) {
+      promptLabel = '[E] CLUB ECLIPSE VIP PRIVATE SUITE • 21+ ($100 / $250)';
+      promptAccent = '#d97c8c';
+    } else if (state.player.vehicle && nl.companionInCar) {
+      promptLabel = '[E / H] PRIVATE CAR SERVICE • 21+ ($50 / $120)';
+      promptAccent = '#d97c8c';
+    } else if (nl.nearCompanion && state.player.vehicle) {
+      promptLabel = '[H / E] HONK TO INVITE NIGHTLIFE COMPANION INTO CAR';
+      promptAccent = '#c988b8';
+    } else if (nl.inClub && !state.player.vehicle) {
+      promptLabel = nl.dancing
+        ? '[G] STOP DANCING • CLUB ECLIPSE DISCO'
+        : '[G] DANCE ON CLUB ECLIPSE DISCO FLOOR';
+      promptAccent = '#c988b8';
+    }
+
+    if (promptLabel) {
+      ctx.save();
+      ctx.font = '700 11.5px "Segoe UI", sans-serif';
+      const w = Math.max(260, ctx.measureText(promptLabel).width + 32);
+      const px = Math.round(640 - w * 0.5);
+      const py = 648;
+      drawFrostedGlassPanel(ctx, px, py, w, 28, 6, GLASS_BG_STRONG, promptAccent);
+      ctx.fillStyle = promptAccent;
+      ctx.fillRect(px + 8, py + 6, 3, 16);
+      ctx.fillStyle = TEXT_PRIMARY;
+      ctx.textAlign = 'center';
+      ctx.fillText(promptLabel, 643, py + 18);
       ctx.restore();
     }
   }
@@ -274,15 +382,19 @@ function renderTopRightStatusCluster(ctx, state) {
   ctx.textAlign = 'left';
   ctx.fillText(`$${player.cash.toLocaleString()}`, 984, 65);
 
-  // Equipped Weapon & Ammo Badge
+  // Equipped Weapon & Live Ammo Badge
+  const liveAmmo =
+    player.weaponAmmo && typeof player.weaponAmmo[weapon.id] === 'number'
+      ? player.weaponAmmo[weapon.id]
+      : weapon.ammo;
   ctx.fillStyle = weapon.color || ACCENT_CYAN;
   ctx.font = '700 11px "Segoe UI", sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText(`${weapon.shortName} • ${weapon.ammo} RDS`, 1244, 64);
+  ctx.fillText(`${weapon.shortName} • ${liveAmmo} RDS`, 1244, 64);
 
   ctx.fillStyle = TEXT_MUTED;
   ctx.font = '500 10px "Segoe UI", sans-serif';
-  ctx.fillText('[1-5] WEAPONS  [TAB] SAFEHOUSE', 1244, 86);
+  ctx.fillText('[E] SHOPS  [1-5] WEAPONS  [TAB] DOSSIER', 1244, 86);
 }
 
 function renderBottomLeftRadar(ctx, state) {
@@ -320,10 +432,28 @@ function renderBottomLeftRadar(ctx, state) {
   ctx.translate(cx, cy);
   ctx.rotate(-heading - Math.PI * 0.5);
 
-  // Muted Tropical Ocean on right of coast
+  // Muted Tropical Ocean on right of coast + Starfish Island + 2 Causeway Bridges
   const oceanDx = (COAST_X - player.x) * scale;
   ctx.fillStyle = 'rgba(44, 126, 144, 0.42)';
-  ctx.fillRect(oceanDx, -1200, 800, 2400);
+  ctx.fillRect(oceanDx, -1200, 1400, 2600);
+
+  // Starfish Island Landmass & Causeway Bridges on Radar
+  ctx.fillStyle = 'rgba(72, 90, 108, 0.85)';
+  ctx.fillRect(
+    (ISLAND_X1 - player.x) * scale,
+    (ISLAND_Y1 - player.y) * scale,
+    (ISLAND_X2 - ISLAND_X1) * scale,
+    (ISLAND_Y2 - ISLAND_Y1) * scale
+  );
+  ctx.fillStyle = 'rgba(130, 142, 156, 0.72)';
+  for (const bY of CAUSEWAY_YS) {
+    ctx.fillRect(
+      (2720 - player.x) * scale,
+      (bY - 32 - player.y) * scale,
+      (ISLAND_X1 - 2720 + 60) * scale,
+      64 * scale
+    );
+  }
 
   // City Blocks on radar
   ctx.fillStyle = 'rgba(68, 82, 100, 0.78)';
@@ -347,6 +477,37 @@ function renderBottomLeftRadar(ctx, state) {
       else ctx.lineTo(gx, gy);
     }
     ctx.stroke();
+  }
+
+  // Distinct Violet-Gold Club Eclipse Nightclub ♪ Icon on Radar
+  const clubX = (CLUB_ECLIPSE_BOUNDS.centerX - player.x) * scale;
+  const clubY = (CLUB_ECLIPSE_BOUNDS.centerY - player.y) * scale;
+  if (clubX * clubX + clubY * clubY <= (r - 6) * (r - 6)) {
+    ctx.fillStyle = '#c988b8';
+    ctx.beginPath();
+    ctx.arc(clubX, clubY, 6.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = ACCENT_GOLD;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.fillStyle = '#121924';
+    ctx.font = '800 8.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('♪', clubX, clubY + 3);
+  }
+
+  // Interactive Shop & Street Vendor Color-Coded Icons on Radar
+  if (cityMap.shops) {
+    for (const s of cityMap.shops) {
+      const sx = (s.x - player.x) * scale;
+      const sy = (s.y - player.y) * scale;
+      if (sx * sx + sy * sy > (r - 6) * (r - 6)) continue;
+      ctx.fillStyle = SHOP_RADAR_COLORS[s.kind] || ACCENT_GOLD;
+      ctx.fillRect(sx - 3.2, sy - 3.2, 6.4, 6.4);
+      ctx.strokeStyle = 'rgba(12, 17, 25, 0.85)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx - 3.2, sy - 3.2, 6.4, 6.4);
+    }
   }
 
   // Vehicle & Police Blips
@@ -413,15 +574,21 @@ function renderBottomLeftRadar(ctx, state) {
 
   const barX = 30;
   const barY = 661;
+  const maxHp = player.maxHp || 100;
   const hpRatio = Math.max(0, Math.min(1, player.hp / 100));
+  const overhealRatio = Math.max(0, Math.min(1, (player.hp - 100) / 25));
   const armorRatio = Math.max(0, Math.min(1, player.armor / 100));
   const nitroRatio = player.vehicle ? Math.max(0, Math.min(1, player.vehicle.nitro / 100)) : 1;
 
-  // Health Bar (Calm Emerald)
+  // Health Bar (Calm Emerald + Rose-Gold 125 HP Overheal Cap)
   ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
   ctx.fillRect(barX, barY, 68, 6);
   ctx.fillStyle = ACCENT_EMERALD;
   ctx.fillRect(barX, barY, 68 * hpRatio, 6);
+  if (maxHp > 100 && overhealRatio > 0) {
+    ctx.fillStyle = '#e08ca4';
+    ctx.fillRect(barX, barY, 68 * overhealRatio, 2.5);
+  }
 
   // Armor Bar (Muted Coastal Cyan)
   ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
@@ -694,16 +861,310 @@ function renderSafehouseDossierModal(ctx, state) {
   ctx.fillText('[TAB / M] RESUME 3D OPEN WORLD', x + 465, y + 524);
 }
 
+function renderShopOverlayDrawer(ctx, state) {
+  const { shop, hoveredIndex, feedbackText, feedbackColor, feedbackTimer } = state.shopModal;
+  const layout = getShopDrawerLayout(shop);
+  if (!layout) return;
+
+  const { x, y, w, h, itemRects, closeRect, catalog } = layout;
+  const accent = catalog.accent || ACCENT_GOLD;
+
+  ctx.save();
+  drawFrostedGlassPanel(ctx, x, y, w, h, 10, GLASS_BG_STRONG, accent);
+
+  // Top accent strip
+  ctx.fillStyle = accent;
+  ctx.fillRect(x + 20, y + 14, 46, 3);
+
+  // Shop header & category
+  ctx.fillStyle = accent;
+  ctx.font = '700 10px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(catalog.categoryLabel, x + 20, y + 32);
+
+  ctx.fillStyle = TEXT_PRIMARY;
+  ctx.font = '800 17px "Segoe UI", sans-serif';
+  ctx.fillText(shop.name, x + 20, y + 53);
+
+  // Player cash & status readout top-right
+  ctx.fillStyle = ACCENT_EMERALD;
+  ctx.font = '800 16px "Consolas", "Segoe UI", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(`$${state.player.cash.toLocaleString()}`, x + w - 20, y + 40);
+
+  let statusLine = `HP ${Math.round(state.player.hp)}% • ARMOR ${Math.round(state.player.armor)}%`;
+  if (shop.kind === 'garage') {
+    const v = findTargetVehicleForGarage(state, shop);
+    statusLine = v
+      ? `${v.name} • HP ${Math.round((v.hp / v.maxHp) * 100)}%`
+      : 'NO VEHICLE AT BAY';
+  }
+  ctx.fillStyle = TEXT_MUTED;
+  ctx.font = '600 10px "Segoe UI", sans-serif';
+  ctx.fillText(statusLine, x + w - 20, y + 57);
+
+  // Subtle divider line
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
+  ctx.fillRect(x + 20, y + 72, w - 40, 1);
+
+  // Shop item rows
+  for (const r of itemRects) {
+    const canAfford = state.player.cash >= r.item.price;
+    const isHovered = hoveredIndex === r.index;
+    const isEquippedOutfit =
+      r.item.outfitId && state.player.outfitId === r.item.outfitId;
+
+    ctx.fillStyle = isHovered
+      ? 'rgba(255, 255, 255, 0.11)'
+      : 'rgba(255, 255, 255, 0.045)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+
+    ctx.strokeStyle = isHovered ? accent : GLASS_BORDER;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+    // Key badge [1]..[5]
+    ctx.fillStyle = canAfford ? 'rgba(224, 178, 104, 0.18)' : 'rgba(217, 91, 102, 0.14)';
+    ctx.fillRect(r.x + 10, r.y + 13, 28, 28);
+    ctx.strokeStyle = canAfford ? accent : ACCENT_ALERT;
+    ctx.strokeRect(r.x + 10, r.y + 13, 28, 28);
+
+    ctx.fillStyle = canAfford ? accent : ACCENT_ALERT;
+    ctx.font = '800 12px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${r.index + 1}`, r.x + 24, r.y + 31);
+
+    // Item title & effect subtitle
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.font = '700 12.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(
+      isEquippedOutfit ? `${r.item.name} (WORN)` : r.item.name,
+      r.x + 48,
+      r.y + 23
+    );
+
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '500 10.5px "Segoe UI", sans-serif';
+    ctx.fillText(r.item.effectLabel, r.x + 48, r.y + 41);
+
+    // Price pill
+    ctx.fillStyle = canAfford ? ACCENT_EMERALD : ACCENT_ALERT;
+    ctx.font = '800 14px "Consolas", "Segoe UI", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`$${r.item.price.toLocaleString()}`, r.x + r.w - 14, r.y + 32);
+  }
+
+  // Footer status / hint + Close button
+  if (feedbackTimer > 0 && feedbackText) {
+    ctx.fillStyle = feedbackColor || ACCENT_EMERALD;
+    ctx.font = '700 10.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(feedbackText, x + 20, y + h - 23);
+  } else {
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '600 10.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('PRESS [1-5] OR CLICK ITEM TO PURCHASE', x + 20, y + h - 23);
+  }
+
+  drawFrostedGlassPanel(
+    ctx,
+    closeRect.x,
+    closeRect.y,
+    closeRect.w,
+    closeRect.h,
+    5,
+    'rgba(255, 255, 255, 0.08)',
+    GLASS_BORDER
+  );
+  ctx.fillStyle = TEXT_PRIMARY;
+  ctx.font = '700 10.5px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('[E / ESC] CLOSE', closeRect.x + closeRect.w * 0.5, closeRect.y + 18);
+  ctx.restore();
+}
+
+function renderNightlifeMenuDrawer(ctx, state) {
+  const nl = state.nightlife;
+  const mode = nl.vipMenuOpen ? 'vip' : 'car';
+  const layout = getNightlifeMenuLayout(mode);
+  const { x, y, w, h, itemRects, closeRect } = layout;
+  const accent = '#d97c8c';
+
+  ctx.save();
+  drawFrostedGlassPanel(ctx, x, y, w, h, 10, GLASS_BG_STRONG, accent);
+
+  ctx.fillStyle = accent;
+  ctx.fillRect(x + 20, y + 14, 48, 3);
+
+  ctx.fillStyle = accent;
+  ctx.font = '700 10px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(
+    mode === 'vip' ? 'CLUB ECLIPSE • 21+ VIP PRIVATE SUITE' : 'PRIVATE CAR SERVICE • 21+ NIGHTLIFE',
+    x + 20,
+    y + 32
+  );
+
+  ctx.fillStyle = TEXT_PRIMARY;
+  ctx.font = '800 17px "Segoe UI", sans-serif';
+  ctx.fillText(
+    mode === 'vip' ? 'VELVET VIP LOUNGE EXPERIENCE' : 'BACKSEAT & PASSENGER SERVICE',
+    x + 20,
+    y + 53
+  );
+
+  ctx.fillStyle = ACCENT_EMERALD;
+  ctx.font = '800 16px "Consolas", "Segoe UI", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(`$${state.player.cash.toLocaleString()}`, x + w - 20, y + 40);
+
+  ctx.fillStyle = TEXT_MUTED;
+  ctx.font = '600 10px "Segoe UI", sans-serif';
+  ctx.fillText(
+    `HP ${Math.round(state.player.hp)}/${state.player.maxHp || 100} • ARMOR ${Math.round(state.player.armor)}%`,
+    x + w - 20,
+    y + 57
+  );
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
+  ctx.fillRect(x + 20, y + 72, w - 40, 1);
+
+  for (const r of itemRects) {
+    const canAfford = state.player.cash >= r.item.price;
+    const isHovered = nl.hoveredIndex === r.index;
+    ctx.fillStyle = isHovered ? 'rgba(217, 124, 140, 0.16)' : 'rgba(255, 255, 255, 0.045)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = isHovered ? accent : GLASS_BORDER;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+    ctx.fillStyle = canAfford ? 'rgba(217, 124, 140, 0.22)' : 'rgba(217, 91, 102, 0.14)';
+    ctx.fillRect(r.x + 10, r.y + 15, 28, 28);
+    ctx.strokeStyle = canAfford ? accent : ACCENT_ALERT;
+    ctx.strokeRect(r.x + 10, r.y + 15, 28, 28);
+
+    ctx.fillStyle = canAfford ? accent : ACCENT_ALERT;
+    ctx.font = '800 12px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${r.index + 1}`, r.x + 24, r.y + 33);
+
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.font = '700 12.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(r.item.name, r.x + 48, r.y + 24);
+
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '500 10.5px "Segoe UI", sans-serif';
+    ctx.fillText(r.item.effectLabel, r.x + 48, r.y + 43);
+
+    ctx.fillStyle = canAfford ? ACCENT_EMERALD : ACCENT_ALERT;
+    ctx.font = '800 14px "Consolas", "Segoe UI", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`$${r.item.price.toLocaleString()}`, r.x + r.w - 14, r.y + 34);
+  }
+
+  if (nl.feedbackTimer > 0 && nl.feedbackText) {
+    ctx.fillStyle = nl.feedbackColor || ACCENT_ALERT;
+    ctx.font = '700 10.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(nl.feedbackText, x + 20, y + h - 23);
+  } else {
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '600 10.5px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('PRESS [1-2] OR CLICK OPTION • ADULTS 21+', x + 20, y + h - 23);
+  }
+
+  drawFrostedGlassPanel(
+    ctx,
+    closeRect.x,
+    closeRect.y,
+    closeRect.w,
+    closeRect.h,
+    5,
+    'rgba(255, 255, 255, 0.08)',
+    GLASS_BORDER
+  );
+  ctx.fillStyle = TEXT_PRIMARY;
+  ctx.font = '700 10.5px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('[E / ESC] CLOSE', closeRect.x + closeRect.w * 0.5, closeRect.y + 18);
+  ctx.restore();
+}
+
+function renderActiveNightlifeSessionHud(ctx, state) {
+  const s = state.nightlife.session;
+  if (!s) return;
+
+  ctx.save();
+  // Steamy crimson-amber vignette framing the intimate scene
+  const vig = ctx.createRadialGradient(640, 360, 220, 640, 360, 740);
+  vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  vig.addColorStop(1, 'rgba(84, 18, 34, 0.44)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, 1280, 720);
+
+  // Pleasure / Climax Meter & Adult Dialogue Card at Bottom Center
+  const w = 520;
+  const h = 104;
+  const x = Math.round(640 - w * 0.5);
+  const y = 576;
+  drawFrostedGlassPanel(ctx, x, y, w, h, 8, GLASS_BG_STRONG, '#d97c8c');
+
+  ctx.fillStyle = '#e08ca4';
+  ctx.font = '800 11px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(
+    s.mode.startsWith('vip')
+      ? 'CLUB ECLIPSE • 21+ VIP PRIVATE SUITE'
+      : 'PRIVATE CAR SESSION • 21+ BACKSEAT',
+    x + 18,
+    y + 22
+  );
+
+  ctx.fillStyle = ACCENT_GOLD;
+  ctx.textAlign = 'right';
+  ctx.fillText(`PLEASURE ${Math.round(s.progress)}%`, x + w - 18, y + 22);
+
+  // Dialogue line
+  ctx.fillStyle = TEXT_PRIMARY;
+  ctx.font = '600 12px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(s.dialogueText || '', x + 18, y + 44);
+
+  // Animated Pleasure / Climax Bar
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.fillRect(x + 18, y + 54, w - 36, 12);
+  const barGrad = ctx.createLinearGradient(x + 18, 0, x + w - 18, 0);
+  barGrad.addColorStop(0, '#c96884');
+  barGrad.addColorStop(1, '#e0b268');
+  ctx.fillStyle = barGrad;
+  ctx.fillRect(x + 18, y + 54, (w - 36) * Math.min(1, s.progress / 100), 12);
+
+  // Rhythm Boost & Exit controls
+  ctx.fillStyle = '#e0b268';
+  ctx.font = '700 11px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('[SPACE] TAP RHYTHM BOOST', x + 18, y + 88);
+
+  ctx.fillStyle = TEXT_MUTED;
+  ctx.textAlign = 'right';
+  ctx.fillText('[ESC] FINISH EARLY', x + w - 18, y + 88);
+  ctx.restore();
+}
+
 function renderBottomControlStrip(ctx) {
   ctx.fillStyle = 'rgba(10, 14, 21, 0.76)';
   ctx.fillRect(0, 698, 1280, 22);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
   ctx.fillRect(0, 698, 1280, 1);
   ctx.fillStyle = '#bcc7d4';
-  ctx.font = '500 11px "Segoe UI", sans-serif';
+  ctx.font = '500 10px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(
-    '[WASD] DRIVE / MOVE   [SPACE] HANDBRAKE DRIFT   [SHIFT] NITRO / SPRINT   [F] CARJACK / EXIT   [MOUSE + CLICK] 3D AIM & FIRE   [1-5] WEAPONS   [R] RADIO   [K] SAVE CAREER   [TAB] DOSSIER',
+    '[WASD] MOVE/DRIVE  [SPACE] DRIFT/RHYTHM  [SHIFT] NITRO/SPRINT  [F] CARJACK  [E] SHOPS/VIP  [G] DANCE  [H] HONK/PICKUP  [CLICK] FIRE  [1-5] WEAPONS/BUY  [K] SAVE  [TAB] DOSSIER',
     640,
     713
   );

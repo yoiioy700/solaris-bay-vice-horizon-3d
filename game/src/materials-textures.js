@@ -1029,6 +1029,304 @@ export function createNeonSignTexture(text, primaryColor = '#d67367', accentColo
 }
 
 /**
+ * Readable warm-lit street shop / vendor cart menu signboard texture (strict PBR).
+ */
+export function createShopSignTexture(title, subtitle = '', primaryColor = '#e0b268', accentColor = '#5eb3aa') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 144;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#1c242e';
+  ctx.fillRect(0, 0, 512, 144);
+
+  // Warm recessed trim frame
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 5;
+  ctx.strokeRect(8, 8, 496, 128);
+
+  ctx.strokeStyle = 'rgba(240, 232, 218, 0.22)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(16, 16, 480, 112);
+
+  // Main readable title
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = primaryColor;
+  ctx.font = '800 42px "Segoe UI", "Trebuchet MS", sans-serif';
+  ctx.fillText(title, 256, subtitle ? 56 : 74);
+
+  if (subtitle) {
+    ctx.fillStyle = '#ddd4c4';
+    ctx.font = '700 20px "Segoe UI", sans-serif';
+    ctx.fillText(subtitle, 256, 102);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * Sidewalk A-frame chalkboard menu texture for street carts & cafés.
+ */
+export function createChalkboardMenuTexture(header, items) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 320;
+  const ctx = canvas.getContext('2d');
+
+  // Wooden frame
+  ctx.fillStyle = '#6c523b';
+  ctx.fillRect(0, 0, 256, 320);
+
+  // Matte slate chalkboard interior
+  ctx.fillStyle = '#242b33';
+  ctx.fillRect(14, 14, 228, 292);
+
+  ctx.strokeStyle = 'rgba(224, 178, 104, 0.72)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(22, 22, 212, 276);
+
+  ctx.fillStyle = '#e0b268';
+  ctx.font = '800 24px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(header, 128, 62);
+
+  ctx.fillStyle = 'rgba(224, 178, 104, 0.45)';
+  ctx.fillRect(46, 76, 164, 2);
+
+  ctx.fillStyle = '#ddd6c7';
+  ctx.font = '700 18px "Segoe UI", sans-serif';
+  items.forEach((line, idx) => {
+    ctx.fillText(line, 128, 118 + idx * 54);
+  });
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * Detailed warm-lit recessed storefront display window texture per shop type.
+ */
+export function createShopWindowTexture(kind) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+
+  // Warm recessed interior gradient
+  const bg = ctx.createLinearGradient(0, 0, 0, 256);
+  if (kind === 'armory') {
+    bg.addColorStop(0, '#3a342e');
+    bg.addColorStop(1, '#22262d');
+  } else if (kind === 'mart_boutique') {
+    bg.addColorStop(0, '#5a6a6c');
+    bg.addColorStop(1, '#2f3d44');
+  } else if (kind === 'garage') {
+    bg.addColorStop(0, '#3e4449');
+    bg.addColorStop(1, '#22272c');
+  } else {
+    bg.addColorStop(0, '#6c5a46');
+    bg.addColorStop(1, '#332c27');
+  }
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 512, 256);
+
+  // Subtle overhead warm track-light cones inside display window
+  for (const lx of [96, 256, 416]) {
+    const glow = ctx.createRadialGradient(lx, 24, 6, lx, 90, 120);
+    glow.addColorStop(0, 'rgba(232, 198, 138, 0.48)');
+    glow.addColorStop(1, 'rgba(232, 198, 138, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(lx - 120, 0, 240, 220);
+  }
+
+  if (kind === 'armory') {
+    // Wooden pegboard back wall + tactical rifle & shotgun rack silhouettes
+    ctx.fillStyle = '#4e3f32';
+    ctx.fillRect(28, 36, 456, 184);
+    ctx.fillStyle = '#1b2028';
+    for (let row = 0; row < 3; row++) {
+      const y = 66 + row * 52;
+      // Rack rail
+      ctx.fillStyle = '#7c766c';
+      ctx.fillRect(46, y + 14, 420, 4);
+      // Rifle silhouettes
+      ctx.fillStyle = '#1a2029';
+      for (let col = 0; col < 3; col++) {
+        const rx = 64 + col * 140;
+        ctx.fillRect(rx, y, 86, 10);
+        ctx.fillRect(rx + 86, y + 2, 26, 5);
+        ctx.fillRect(rx + 28, y + 10, 11, 14);
+        ctx.fillRect(rx + 4, y + 8, 16, 10);
+      }
+    }
+  } else if (kind === 'mart_boutique') {
+    // Store shelves with colorful essentials + folded resort outfits
+    const boxColors = ['#b86658', '#5c9398', '#c8a25e', '#6c987c', '#c8bfb0'];
+    for (let row = 0; row < 3; row++) {
+      const sy = 74 + row * 54;
+      ctx.fillStyle = '#8b7d6c';
+      ctx.fillRect(26, sy, 460, 6);
+      for (let c = 0; c < 11; c++) {
+        ctx.fillStyle = boxColors[(row * 5 + c) % boxColors.length];
+        ctx.fillRect(36 + c * 40, sy - 26, 28, 26);
+      }
+    }
+  } else {
+    // Café / retail interior with warm pendant lamps and pastry counter
+    ctx.fillStyle = '#5c4738';
+    ctx.fillRect(24, 152, 464, 80);
+    ctx.fillStyle = '#cbbba4';
+    ctx.fillRect(24, 146, 464, 10);
+    for (const px of [120, 256, 392]) {
+      ctx.fillStyle = '#2b3038';
+      ctx.fillRect(px - 2, 0, 4, 48);
+      ctx.fillStyle = '#d9b474';
+      ctx.beginPath();
+      ctx.arc(px, 54, 14, Math.PI, 0);
+      ctx.fill();
+    }
+  }
+
+  // Mullion window framing + subtle diagonal glass sheen
+  ctx.fillStyle = 'rgba(185, 210, 224, 0.12)';
+  ctx.beginPath();
+  ctx.moveTo(40, 0);
+  ctx.lineTo(130, 0);
+  ctx.lineTo(60, 256);
+  ctx.lineTo(0, 256);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = '#2b323c';
+  ctx.lineWidth = 10;
+  ctx.strokeRect(5, 5, 502, 246);
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(172, 0);
+  ctx.lineTo(172, 256);
+  ctx.moveTo(340, 0);
+  ctx.lineTo(340, 256);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * Solaris Bay transit map texture for glass bus stop shelters.
+ */
+export function createBusMapTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 384;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#1f2833';
+  ctx.fillRect(0, 0, 256, 384);
+
+  ctx.fillStyle = '#2d4f60';
+  ctx.fillRect(168, 56, 74, 290);
+
+  ctx.fillStyle = '#e0b268';
+  ctx.font = '800 18px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('SOLARIS TRANSIT', 128, 34);
+
+  // Route lines
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = '#64bcc9';
+  ctx.beginPath();
+  ctx.moveTo(42, 80);
+  ctx.lineTo(148, 80);
+  ctx.lineTo(148, 324);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#d67367';
+  ctx.beginPath();
+  ctx.moveTo(42, 165);
+  ctx.lineTo(148, 165);
+  ctx.lineTo(148, 255);
+  ctx.lineTo(42, 255);
+  ctx.stroke();
+
+  for (const [sx, sy] of [
+    [42, 80],
+    [148, 80],
+    [148, 165],
+    [148, 255],
+    [148, 324]
+  ]) {
+    ctx.fillStyle = '#edf1f5';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * Checkered side band texture for Solaris City Cabs (Taxis).
+ */
+export function createTaxiCheckerTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  const sq = 16;
+  for (let x = 0; x < 256; x += sq) {
+    for (let y = 0; y < 32; y += sq) {
+      const dark = ((x / sq) + (y / sq)) % 2 === 0;
+      ctx.fillStyle = dark ? '#20242b' : '#dfd7c6';
+      ctx.fillRect(x, y, sq, sq);
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+/**
+ * Commercial livery decal texture for Solaris Fresh Delivery Vans.
+ */
+export function createVanLiveryTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#cfc9bc';
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.fillStyle = '#4c7e76';
+  ctx.fillRect(0, 92, 512, 22);
+  ctx.fillStyle = '#c89b55';
+  ctx.fillRect(0, 84, 512, 8);
+
+  ctx.fillStyle = '#25343c';
+  ctx.font = '800 38px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('SOLARIS FRESH', 256, 54);
+  ctx.fillStyle = '#4c7e76';
+  ctx.font = '700 18px "Segoe UI", sans-serif';
+  ctx.fillText('COASTAL MARKET DELIVERY', 256, 76);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
  * Creates the complete shared PBR material library for Solaris Bay 3D.
  */
 export function createMaterialLibrary(renderer) {
@@ -1049,10 +1347,110 @@ export function createMaterialLibrary(renderer) {
   const muzzleStarTex = createMuzzleStarTexture();
   const awningCoralTex = createAwningTexture('#b55d53', '#d4cbbd');
   const awningTealTex = createAwningTexture('#467c82', '#d4cbbd');
+  const awningGoldTex = createAwningTexture('#b88948', '#d8d0c2');
+  const awningSlateTex = createAwningTexture('#394552', '#c4a162');
+  const taxiCheckerTex = createTaxiCheckerTexture();
+  const vanLiveryTex = createVanLiveryTexture();
+  const busMapTex = createBusMapTexture();
   const facadeSets = createBuildingFacadeTextures();
 
   const carPaintCache = new Map();
   const neonSignCache = new Map();
+  const shopSignCache = new Map();
+  const shopWindowCache = new Map();
+  const chalkboardCache = new Map();
+  const awningCache = new Map();
+  const matteColorCache = new Map();
+
+  function getMatteColorMaterial(hexColor, roughness = 0.80, metalness = 0.04) {
+    const key = `${hexColor}|${roughness}|${metalness}`;
+    if (!matteColorCache.has(key)) {
+      matteColorCache.set(
+        key,
+        new THREE.MeshStandardMaterial({
+          color: new THREE.Color(hexColor),
+          roughness,
+          metalness,
+          envMapIntensity: 0.24
+        })
+      );
+    }
+    return matteColorCache.get(key);
+  }
+
+  function getCustomAwningMaterial(colorA, colorB) {
+    const key = `${colorA}|${colorB}`;
+    if (!awningCache.has(key)) {
+      const tex = createAwningTexture(colorA, colorB);
+      awningCache.set(
+        key,
+        new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.86,
+          metalness: 0.0,
+          envMapIntensity: 0.2,
+          side: THREE.DoubleSide
+        })
+      );
+    }
+    return awningCache.get(key);
+  }
+
+  function getShopSignMaterial(title, subtitle, primaryColor, accentColor) {
+    const key = `${title}|${subtitle}|${primaryColor}|${accentColor}`;
+    if (!shopSignCache.has(key)) {
+      const tex = createShopSignTexture(title, subtitle, primaryColor, accentColor);
+      shopSignCache.set(
+        key,
+        new THREE.MeshStandardMaterial({
+          map: tex,
+          emissiveMap: tex,
+          emissive: new THREE.Color(0xffffff),
+          emissiveIntensity: 0.42,
+          roughness: 0.42,
+          metalness: 0.12,
+          envMapIntensity: 0.35
+        })
+      );
+    }
+    return shopSignCache.get(key);
+  }
+
+  function getShopWindowMaterial(kind) {
+    if (!shopWindowCache.has(kind)) {
+      const tex = createShopWindowTexture(kind);
+      shopWindowCache.set(
+        kind,
+        new THREE.MeshStandardMaterial({
+          map: tex,
+          emissiveMap: tex,
+          emissive: new THREE.Color(0xfff1dc),
+          emissiveIntensity: 0.36,
+          roughness: 0.22,
+          metalness: 0.18,
+          envMapIntensity: 0.65
+        })
+      );
+    }
+    return shopWindowCache.get(kind);
+  }
+
+  function getChalkboardMaterial(header, items) {
+    const key = `${header}|${items.join('|')}`;
+    if (!chalkboardCache.has(key)) {
+      const tex = createChalkboardMenuTexture(header, items);
+      chalkboardCache.set(
+        key,
+        new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.85,
+          metalness: 0.02,
+          envMapIntensity: 0.18
+        })
+      );
+    }
+    return chalkboardCache.get(key);
+  }
 
   function getCarPaintMaterial(hexColor) {
     if (!carPaintCache.has(hexColor)) {
@@ -1135,8 +1533,105 @@ export function createMaterialLibrary(renderer) {
     muzzleStarTex,
     getCarPaintMaterial,
     getNeonSignMaterial,
+    getShopSignMaterial,
+    getShopWindowMaterial,
+    getChalkboardMaterial,
+    getCustomAwningMaterial,
+    getMatteColorMaterial,
     getBuildingMaterial,
     buildingMaterials,
+    awningGoldMaterial: new THREE.MeshStandardMaterial({
+      map: awningGoldTex,
+      roughness: 0.86,
+      metalness: 0.0,
+      envMapIntensity: 0.2
+    }),
+    awningSlateMaterial: new THREE.MeshStandardMaterial({
+      map: awningSlateTex,
+      roughness: 0.86,
+      metalness: 0.0,
+      envMapIntensity: 0.2
+    }),
+    taxiCheckerMaterial: new THREE.MeshStandardMaterial({
+      map: taxiCheckerTex,
+      roughness: 0.42,
+      metalness: 0.12
+    }),
+    taxiSignMaterial: new THREE.MeshStandardMaterial({
+      color: 0xe8c458,
+      emissive: 0xd9a83c,
+      emissiveIntensity: 0.72,
+      roughness: 0.28
+    }),
+    vanLiveryMaterial: new THREE.MeshStandardMaterial({
+      map: vanLiveryTex,
+      roughness: 0.36,
+      metalness: 0.18,
+      envMapIntensity: 0.55
+    }),
+    busMapMaterial: new THREE.MeshStandardMaterial({
+      map: busMapTex,
+      emissiveMap: busMapTex,
+      emissive: new THREE.Color(0xffffff),
+      emissiveIntensity: 0.38,
+      roughness: 0.26,
+      metalness: 0.1
+    }),
+    hydrantMaterial: new THREE.MeshStandardMaterial({
+      color: 0x9c3834,
+      roughness: 0.48,
+      metalness: 0.28,
+      envMapIntensity: 0.42
+    }),
+    bushFoliageMaterial: new THREE.MeshStandardMaterial({
+      color: 0x436e48,
+      roughness: 0.82,
+      metalness: 0.02,
+      envMapIntensity: 0.22
+    }),
+    bushLightMaterial: new THREE.MeshStandardMaterial({
+      color: 0x568252,
+      roughness: 0.78,
+      metalness: 0.02,
+      envMapIntensity: 0.24
+    }),
+    trafficRedMaterial: new THREE.MeshStandardMaterial({
+      color: 0xc94246,
+      emissive: 0xc4363a,
+      emissiveIntensity: 1.1,
+      roughness: 0.2
+    }),
+    trafficAmberMaterial: new THREE.MeshStandardMaterial({
+      color: 0xd49d3b,
+      emissive: 0xc98d2e,
+      emissiveIntensity: 0.95,
+      roughness: 0.2
+    }),
+    trafficGreenMaterial: new THREE.MeshStandardMaterial({
+      color: 0x46a66e,
+      emissive: 0x3b9660,
+      emissiveIntensity: 1.05,
+      roughness: 0.2
+    }),
+    trafficOffMaterial: new THREE.MeshStandardMaterial({
+      color: 0x1e2329,
+      roughness: 0.65,
+      metalness: 0.2
+    }),
+    shelterGlassMaterial: new THREE.MeshPhysicalMaterial({
+      color: 0x7ea2b5,
+      transparent: true,
+      opacity: 0.34,
+      roughness: 0.14,
+      metalness: 0.1,
+      envMapIntensity: 0.8
+    }),
+    warmStringBulbMaterial: new THREE.MeshStandardMaterial({
+      color: 0xf0d29c,
+      emissive: 0xe6ba70,
+      emissiveIntensity: 0.92,
+      roughness: 0.22
+    }),
     roadMaterial: new THREE.MeshStandardMaterial({
       map: roadTex,
       roughnessMap: roadRoughTex,

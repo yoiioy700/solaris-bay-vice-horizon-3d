@@ -1,48 +1,81 @@
-export const WORLD_WIDTH = 3600;
-export const WORLD_HEIGHT = 3600;
+export const WORLD_WIDTH = 5200;
+export const WORLD_HEIGHT = 5120;
 export const BLOCK_SIZE = 320;
 export const ROAD_WIDTH = 96;
 export const SIDEWALK_WIDTH = 18;
 export const COAST_X = 2780;
 export const BEACH_WIDTH = 220;
+export const ISLAND_X1 = 3160;
+export const ISLAND_X2 = 3920;
+export const ISLAND_Y1 = 440;
+export const ISLAND_Y2 = 2160;
+export const CAUSEWAY_YS = [896, 1856];
 
 export const STORAGE_KEY = 'solaris_bay_vice_horizon_3d_save_v1';
 
 export const DISTRICTS = [
   {
+    id: 'club_eclipse',
+    name: 'CLUB ECLIPSE NIGHTLIFE QUARTER',
+    subtitle: '21+ Open-Air Disco Pavilion, VIP Suites & Nightlife',
+    accent: '#c988b8',
+    bounds: { x1: 1480, y1: 1560, x2: 2040, y2: 2240 }
+  },
+  {
+    id: 'starfish_island',
+    name: 'STARFISH ISLAND & EXTENDED MARINA',
+    subtitle: 'Private Causeway Island Estates & Superyacht Slips',
+    accent: '#5eb3aa',
+    bounds: { x1: 3000, y1: 320, x2: 4200, y2: 2350 }
+  },
+  {
+    id: 'sunset_hills',
+    name: 'SUNSET HILLS BOULEVARD',
+    subtitle: 'Coastal Luxury Villas & Southern Palm Promenade',
+    accent: '#d89b60',
+    bounds: { x1: 1150, y1: 3000, x2: 3000, y2: 5050 }
+  },
+  {
+    id: 'palm_harbor',
+    name: 'PALM HARBOR DOCKS',
+    subtitle: 'Container Terminals, Gantry Cranes & Waterfront Piers',
+    accent: '#8ca0b5',
+    bounds: { x1: 80, y1: 2480, x2: 1150, y2: 5050 }
+  },
+  {
     id: 'ocean_drive',
     name: 'OCEAN DRIVE • SOLARIS BEACH',
     subtitle: 'Art-Deco Resort Strip & Palm Boardwalk',
     accent: '#e0b268',
-    bounds: { x1: 2050, y1: 1200, x2: 3150, y2: 3450 }
+    bounds: { x1: 2050, y1: 1200, x2: 3000, y2: 3000 }
   },
   {
     id: 'neon_strip',
     name: 'VICE NEON STRIP',
     subtitle: 'Boutique Casino Boulevard & Nightlife',
     accent: '#64bcc9',
-    bounds: { x1: 1150, y1: 1200, x2: 2050, y2: 2480 }
+    bounds: { x1: 1150, y1: 1200, x2: 2050, y2: 3000 }
   },
   {
     id: 'downtown',
     name: 'DOWNTOWN VICE PLAZA',
     subtitle: 'Financial Glass Towers & Corporate Center',
     accent: '#d8a660',
-    bounds: { x1: 350, y1: 350, x2: 2050, y2: 1200 }
+    bounds: { x1: 200, y1: 250, x2: 2050, y2: 1200 }
   },
   {
     id: 'marina',
     name: 'STARFISH BAY MARINA',
     subtitle: 'Superyacht Docks & Luxury Safehouse Villa',
     accent: '#63c792',
-    bounds: { x1: 2050, y1: 250, x2: 3200, y2: 1200 }
+    bounds: { x1: 2050, y1: 250, x2: 3000, y2: 1200 }
   },
   {
     id: 'harbor',
     name: 'PORT SOLARIS CARGO HARBOR',
     subtitle: 'Industrial Logistics & Syndicate Foundry',
     accent: '#9ca8ba',
-    bounds: { x1: 250, y1: 1200, x2: 1150, y2: 3400 }
+    bounds: { x1: 80, y1: 1200, x2: 1150, y2: 2480 }
   }
 ];
 
@@ -122,6 +155,47 @@ export const VEHICLE_TYPES = {
     hasSpoiler: false,
     isConvertible: false,
     value: 54000
+  },
+  city_taxi: {
+    id: 'city_taxi',
+    name: 'SOLARIS CITY CAB',
+    category: 'METROPOLITAN TAXI',
+    width: 23,
+    length: 49,
+    height: 15,
+    maxSpeed: 335,
+    accel: 235,
+    brake: 300,
+    turnRate: 2.55,
+    driftGrip: 0.9,
+    maxHp: 290,
+    color: '#c9a132',
+    stripeColor: '#232830',
+    hasSpoiler: false,
+    isConvertible: false,
+    isTaxi: true,
+    value: 38000
+  },
+  delivery_van: {
+    id: 'delivery_van',
+    name: 'SOLARIS FRESH VAN',
+    category: 'COMMERCIAL DELIVERY',
+    width: 25,
+    length: 54,
+    height: 19.5,
+    maxSpeed: 275,
+    accel: 190,
+    brake: 275,
+    turnRate: 2.1,
+    driftGrip: 0.93,
+    maxHp: 380,
+    color: '#cfc9bc',
+    stripeColor: '#4c7e76',
+    hasSpoiler: false,
+    isConvertible: false,
+    isHeavy: true,
+    isCommercialVan: true,
+    value: 46000
   },
   bison_suv: {
     id: 'bison_suv',
@@ -324,29 +398,29 @@ export const LANDMARKS = {
   },
   payNsprayOcean: {
     id: 'pay_n_spray_ocean',
-    name: "PAY 'N' SPRAY OCEAN DRIVE",
-    x: 2176,
-    y: 1760,
-    radius: 58,
-    cost: 1000,
-    color: '#00f0ff'
+    name: 'SOLARIS CUSTOMS • PAY-N-SPRAY',
+    x: 2238,
+    y: 1736,
+    radius: 105,
+    cost: 200,
+    color: '#63c792'
   },
   payNsprayDowntown: {
     id: 'pay_n_spray_downtown',
-    name: "PAY 'N' SPRAY DOWNTOWN",
-    x: 1216,
-    y: 800,
-    radius: 58,
-    cost: 1000,
-    color: '#00f0ff'
+    name: 'SOLARIS CUSTOMS • DOWNTOWN',
+    x: 1280,
+    y: 1054,
+    radius: 105,
+    cost: 200,
+    color: '#63c792'
   },
   armory: {
     id: 'vice_armory',
-    name: 'VICE TACTICAL ARMORY',
-    x: 1536,
-    y: 1440,
-    radius: 55,
-    cost: 750,
-    color: '#f59e0b'
+    name: 'VICE ARMORY • GUNS & GEAR',
+    x: 1920,
+    y: 1732,
+    radius: 82,
+    cost: 250,
+    color: '#d97c5b'
   }
 };
