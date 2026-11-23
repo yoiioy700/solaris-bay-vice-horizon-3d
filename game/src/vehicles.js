@@ -63,8 +63,8 @@ export function spawnInitialVehicles(cityMap) {
   list.push(
     createVehicle('comet_cabrio', 2535, 835, -Math.PI * 0.35, { aiRole: 'parked' }),
     createVehicle('apex_gt', 2465, 845, -Math.PI * 0.65, {
-      color: '#fde047',
-      stripeColor: '#111827',
+      color: '#b6ad9d',
+      stripeColor: '#2d343e',
       aiRole: 'parked'
     }),
     createVehicle('stinger_muscle', 1856, 1780, 0, { aiRole: 'parked' }),
@@ -202,13 +202,13 @@ export function updateVehicles(state, dt) {
           state.wanted.stars = 0;
           state.wanted.heat = 0;
           state.payNsprayCooldown = 8.0;
-          const exoticColors = ['#ff1e74', '#00f0ff', '#fde047', '#10b981', '#a855f7'];
+          const exoticColors = ['#a6283b', '#246b7f', '#b6ad9d', '#ad5937', '#383f4a'];
           player.vehicle.color =
             exoticColors[Math.floor(Math.random() * exoticColors.length)];
           state.hudBanner = {
             title: "PAY 'N' SPRAY RESPRAY COMPLETE",
             subtitle: 'VEHICLE REPAIRED • WANTED HEAT CLEARED',
-            color: '#00f0ff',
+            color: '#64bcc9',
             timer: 3.4
           };
           if (particles) {
@@ -221,7 +221,7 @@ export function updateVehicles(state, dt) {
                 vy: (Math.random() - 0.5) * 70,
                 vz: 20 + Math.random() * 30,
                 size: 5,
-                color: '#00f0ff',
+                color: '#a8b8c4',
                 life: 0.7,
                 maxLife: 0.7,
                 kind: 'smoke'
@@ -311,8 +311,8 @@ function updatePlayerDrivenVehicle(state, v, input, dt) {
       vx: -v.vx * 0.18 + (Math.random() - 0.5) * 20,
       vy: -v.vy * 0.18 + (Math.random() - 0.5) * 20,
       vz: 10 + Math.random() * 14,
-      size: v.nitroActive ? 4.8 : 6.2,
-      color: v.nitroActive ? '#00f0ff' : '#cbd5e1',
+      size: v.nitroActive ? 4.4 : 5.8,
+      color: v.nitroActive ? '#a8b7c4' : '#b8b6b0',
       life: 0.45,
       maxLife: 0.45,
       kind: 'smoke'

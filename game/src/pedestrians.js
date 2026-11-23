@@ -3,16 +3,19 @@ import { resolveCircleBuildingCollisions } from './city-map.js';
 let nextNpcId = 1;
 
 const CIVILIAN_OUTFITS = [
-  { jacket: '#ff2a85', shirt: '#00f0ff', pants: '#1e293b' },
-  { jacket: '#00f0ff', shirt: '#fde047', pants: '#0f172a' },
-  { jacket: '#a855f7', shirt: '#f472b6', pants: '#1e1b4b' },
-  { jacket: '#f97316', shirt: '#ffffff', pants: '#1e293b' },
-  { jacket: '#10b981', shirt: '#fef08a', pants: '#0f172a' }
+  { jacket: '#5c8279', shirt: '#d8d1c5', pants: '#27313d' },
+  { jacket: '#b89f82', shirt: '#dcd7cd', pants: '#2e3844' },
+  { jacket: '#4c6882', shirt: '#d6d0c4', pants: '#252c36' },
+  { jacket: '#a66252', shirt: '#ddd6ca', pants: '#2a333e' },
+  { jacket: '#526154', shirt: '#d5cfc3', pants: '#28303b' }
 ];
+
+const SKIN_TONES = ['#cfa07e', '#b98766', '#d8b090', '#966b4f', '#c79674'];
 
 export function createPedestrian(x, y, role = 'civilian', overrides = {}) {
   const outfit =
     CIVILIAN_OUTFITS[nextNpcId % CIVILIAN_OUTFITS.length];
+  const skinColor = SKIN_TONES[nextNpcId % SKIN_TONES.length];
   const isHostile = role === 'syndicate' || role === 'police';
   return {
     id: `npc_${nextNpcId++}`,
@@ -34,17 +37,19 @@ export function createPedestrian(x, y, role = 'civilian', overrides = {}) {
     cashReward: role === 'syndicate' ? 650 : role === 'police' ? 250 : 120,
     jacketColor:
       role === 'police'
-        ? '#0f172a'
+        ? '#223044'
         : role === 'syndicate'
-          ? '#991b1b'
+          ? '#363b45'
           : outfit.jacket,
     shirtColor:
       role === 'police'
-        ? '#38bdf8'
+        ? '#6c8eab'
         : role === 'syndicate'
-          ? '#fde047'
+          ? '#9e4d46'
           : outfit.shirt,
-    pantsColor: outfit.pants,
+    pantsColor: role === 'police' ? '#1c2533' : outfit.pants,
+    skinColor,
+    hairColor: nextNpcId % 3 === 0 ? '#3d3028' : '#242120',
     hasWeapon: isHostile,
     dead: false,
     ...overrides

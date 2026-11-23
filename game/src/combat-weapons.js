@@ -86,8 +86,8 @@ export function firePlayerWeapon(state) {
       vx: Math.cos(spAngle) * (120 + Math.random() * 90),
       vy: Math.sin(spAngle) * (120 + Math.random() * 90),
       vz: (Math.random() - 0.3) * 40,
-      size: 2.2,
-      color: weapon.color,
+      size: 1.9,
+      color: '#eab66a',
       life: 0.16,
       maxLife: 0.16,
       kind: 'spark'
@@ -101,66 +101,105 @@ export function firePlayerWeapon(state) {
 export function triggerExplosion(state, x, y, z = 8, radius = 115, maxDamage = 260) {
   const { particles, vehicles, pedestrians, player } = state;
 
-  // Volumetric 3D fireball core spheres
-  particles.push({
-    x,
-    y,
-    z: z + 6,
-    vx: 0,
-    vy: 0,
-    vz: 14,
-    size: 24,
-    color: '#fde047',
-    life: 0.55,
-    maxLife: 0.55,
-    kind: 'fireball'
-  });
+  // Layered wispy warm-amber fireball core nestled inside dark charcoal smoke plumes
+  const smokeOffsets = [
+    [-12, -8, 18, 16, '#2e3138'],
+    [11, -9, 22, 17, '#383c44'],
+    [-6, 8, 25, 18, '#2b2e35'],
+    [14, 5, 17, 15, '#3f444d'],
+    [2, -4, 30, 19, '#31353d'],
+    [-14, 2, 13, 14, '#3a3e47']
+  ];
+  for (const [ox, oy, oz, sz, col] of smokeOffsets) {
+    particles.push({
+      x: x + ox,
+      y: y + oy,
+      z: z + oz,
+      vx: ox * 1.4,
+      vy: oy * 1.4,
+      vz: 24 + (sz % 5) * 4,
+      size: sz,
+      color: col,
+      life: 0.85,
+      maxLife: 1.05,
+      kind: 'smoke_heavy'
+    });
+  }
 
   particles.push({
-    x: x + 6,
-    y: y - 4,
-    z: z + 10,
+    x: x + 3,
+    y: y + 4,
+    z: z + 9,
     vx: 0,
     vy: 0,
-    vz: 18,
-    size: 34,
-    color: '#f97316',
-    life: 0.72,
+    vz: 16,
+    size: 16,
+    color: '#d96226',
+    life: 0.62,
     maxLife: 0.72,
     kind: 'fireball'
   });
 
-  // Expanding 3D ground shockwave ring
+  particles.push({
+    x: x - 4,
+    y: y + 5,
+    z: z + 11,
+    vx: 0,
+    vy: 0,
+    vz: 14,
+    size: 14,
+    color: '#e6842e',
+    life: 0.66,
+    maxLife: 0.75,
+    kind: 'fireball'
+  });
+
+  particles.push({
+    x: x,
+    y: y + 6,
+    z: z + 9,
+    vx: 0,
+    vy: 0,
+    vz: 12,
+    size: 11,
+    color: '#f2be63',
+    life: 0.48,
+    maxLife: 0.55,
+    kind: 'fireball_core'
+  });
+
+  // Subtle warm-amber ground blast shockwave ring
   particles.push({
     x,
     y,
-    z: 2.5,
+    z: 1.8,
     vx: 0,
     vy: 0,
     vz: 0,
-    size: radius * 0.85,
-    color: '#ff2a85',
-    life: 0.48,
-    maxLife: 0.48,
+    size: radius * 0.62,
+    color: '#d9823b',
+    life: 0.44,
+    maxLife: 0.52,
     kind: 'shockwave'
   });
 
-  // Radial debris & smoke plumes
-  for (let i = 0; i < 24; i++) {
-    const ang = (i * Math.PI * 2) / 24 + Math.random() * 0.2;
-    const spd = 70 + Math.random() * 180;
+  // Fine ember sparks & rising ash wisps
+  for (let i = 0; i < 20; i++) {
+    const ang = (i * Math.PI * 2) / 20 + ((i % 3) - 1) * 0.08;
+    const spd = 65 + (i % 5) * 28;
+    const isEmber = i % 2 === 0;
     particles.push({
-      x: x + Math.cos(ang) * 8,
-      y: y + Math.sin(ang) * 8,
-      z: z + Math.random() * 10,
+      x: x + Math.cos(ang) * (isEmber ? 14 : 18),
+      y: y + Math.sin(ang) * (isEmber ? 14 : 18),
+      z: z + 6 + (i % 4) * 5,
       vx: Math.cos(ang) * spd,
       vy: Math.sin(ang) * spd,
-      vz: 45 + Math.random() * 95,
-      size: i % 2 === 0 ? 4.5 : 8.5,
-      color: i % 3 === 0 ? '#fde047' : i % 2 === 0 ? '#fb923c' : '#475569',
-      life: 0.65 + Math.random() * 0.4,
+      vz: 42 + (i % 4) * 18,
+      size: isEmber ? 2.4 : 7.5,
+      color: isEmber ? '#f0a44b' : '#3a3e46',
+      life: 0.65 + (i % 3) * 0.14,
       maxLife: 1.0,
-      kind: i % 2 === 0 ? 'spark' : 'smoke'
+      kind: isEmber ? 'spark' : 'smoke_heavy'
     });
   }
 

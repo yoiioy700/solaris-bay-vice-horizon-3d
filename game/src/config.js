@@ -13,35 +13,35 @@ export const DISTRICTS = [
     id: 'ocean_drive',
     name: 'OCEAN DRIVE • SOLARIS BEACH',
     subtitle: 'Art-Deco Resort Strip & Palm Boardwalk',
-    accent: '#ff2a85',
+    accent: '#e0b268',
     bounds: { x1: 2050, y1: 1200, x2: 3150, y2: 3450 }
   },
   {
     id: 'neon_strip',
     name: 'VICE NEON STRIP',
-    subtitle: 'High-Rollers Casino Boulevard & Nightclubs',
-    accent: '#00f0ff',
+    subtitle: 'Boutique Casino Boulevard & Nightlife',
+    accent: '#64bcc9',
     bounds: { x1: 1150, y1: 1200, x2: 2050, y2: 2480 }
   },
   {
     id: 'downtown',
     name: 'DOWNTOWN VICE PLAZA',
     subtitle: 'Financial Glass Towers & Corporate Center',
-    accent: '#f59e0b',
+    accent: '#d8a660',
     bounds: { x1: 350, y1: 350, x2: 2050, y2: 1200 }
   },
   {
     id: 'marina',
     name: 'STARFISH BAY MARINA',
     subtitle: 'Superyacht Docks & Luxury Safehouse Villa',
-    accent: '#10b981',
+    accent: '#63c792',
     bounds: { x1: 2050, y1: 250, x2: 3200, y2: 1200 }
   },
   {
     id: 'harbor',
     name: 'PORT SOLARIS CARGO HARBOR',
     subtitle: 'Industrial Logistics & Syndicate Foundry',
-    accent: '#a855f7',
+    accent: '#9ca8ba',
     bounds: { x1: 250, y1: 1200, x2: 1150, y2: 3400 }
   }
 ];
@@ -60,8 +60,8 @@ export const VEHICLE_TYPES = {
     turnRate: 2.75,
     driftGrip: 0.88,
     maxHp: 280,
-    color: '#ff1e74',
-    stripeColor: '#00f6ff',
+    color: '#a6283b',
+    stripeColor: '#cfc5b4',
     hasSpoiler: true,
     isConvertible: false,
     value: 145000
@@ -79,8 +79,8 @@ export const VEHICLE_TYPES = {
     turnRate: 2.85,
     driftGrip: 0.86,
     maxHp: 250,
-    color: '#00e5ff',
-    stripeColor: '#ffffff',
+    color: '#246b7f',
+    stripeColor: '#d2cdc2',
     hasSpoiler: true,
     isConvertible: true,
     value: 110000
@@ -98,8 +98,8 @@ export const VEHICLE_TYPES = {
     turnRate: 2.55,
     driftGrip: 0.81,
     maxHp: 310,
-    color: '#f97316',
-    stripeColor: '#111827',
+    color: '#ad5937',
+    stripeColor: '#2c323b',
     hasSpoiler: true,
     isConvertible: false,
     value: 78000
@@ -117,8 +117,8 @@ export const VEHICLE_TYPES = {
     turnRate: 2.45,
     driftGrip: 0.9,
     maxHp: 270,
-    color: '#8b5cf6',
-    stripeColor: '#e2e8f0',
+    color: '#b6ad9d',
+    stripeColor: '#3f4752',
     hasSpoiler: false,
     isConvertible: false,
     value: 54000
@@ -136,8 +136,8 @@ export const VEHICLE_TYPES = {
     turnRate: 2.25,
     driftGrip: 0.91,
     maxHp: 420,
-    color: '#10b981',
-    stripeColor: '#064e3b',
+    color: '#383f4a',
+    stripeColor: '#69727d',
     hasSpoiler: false,
     isConvertible: false,
     value: 68000
@@ -155,8 +155,8 @@ export const VEHICLE_TYPES = {
     turnRate: 2.7,
     driftGrip: 0.89,
     maxHp: 340,
-    color: '#0f172a',
-    stripeColor: '#f8fafc',
+    color: '#1f2a3a',
+    stripeColor: '#d8d3c8',
     hasSpoiler: false,
     isPolice: true,
     value: 85000
@@ -174,8 +174,8 @@ export const VEHICLE_TYPES = {
     turnRate: 2.05,
     driftGrip: 0.94,
     maxHp: 640,
-    color: '#1e293b',
-    stripeColor: '#38bdf8',
+    color: '#2c3440',
+    stripeColor: '#587894',
     hasSpoiler: false,
     isPolice: true,
     isHeavy: true,
@@ -194,8 +194,8 @@ export const VEHICLE_TYPES = {
     turnRate: 1.95,
     driftGrip: 0.95,
     maxHp: 750,
-    color: '#b45309',
-    stripeColor: '#fde047',
+    color: '#7a5c3a',
+    stripeColor: '#c7a461',
     hasSpoiler: false,
     isHeavy: true,
     value: 250000
@@ -215,7 +215,7 @@ export const WEAPONS = [
     spread: 0.025,
     pellets: 1,
     ammo: 999,
-    color: '#fde047'
+    color: '#e0b268'
   },
   {
     id: 'smg',
@@ -229,7 +229,7 @@ export const WEAPONS = [
     spread: 0.055,
     pellets: 1,
     ammo: 360,
-    color: '#00f0ff'
+    color: '#64bcc9'
   },
   {
     id: 'shotgun',
@@ -243,7 +243,7 @@ export const WEAPONS = [
     spread: 0.14,
     pellets: 6,
     ammo: 96,
-    color: '#fb923c'
+    color: '#d98c57'
   },
   {
     id: 'carbine',
@@ -257,7 +257,7 @@ export const WEAPONS = [
     spread: 0.03,
     pellets: 1,
     ammo: 240,
-    color: '#34d399'
+    color: '#63c792'
   },
   {
     id: 'rpg',
@@ -272,7 +272,7 @@ export const WEAPONS = [
     pellets: 1,
     explosiveRadius: 115,
     ammo: 18,
-    color: '#ff2a85'
+    color: '#d96b6b'
   }
 ];
 

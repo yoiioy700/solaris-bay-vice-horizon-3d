@@ -84,7 +84,7 @@ export function applyShowcaseShotIfRequested(state) {
 
     // Crisp, subtle tire-level drift wisps that leave the rear bumper, spoiler, exhausts & nitro flames 100% sharp
     for (let i = 0; i < 8; i++) {
-      const side = i % 2 === 0 ? -11 : 11;
+      const side = i % 2 === 0 ? -10 : 10;
       particles.push({
         x: heroCar.x + side,
         y: heroCar.y + 28 + i * 5.2,
@@ -92,8 +92,8 @@ export function applyShowcaseShotIfRequested(state) {
         vx: 0,
         vy: 15,
         vz: 4,
-        size: 2.3 + (i % 3) * 0.65,
-        color: i < 4 ? '#00f0ff' : '#cbd5e1',
+        size: 2.2 + (i % 3) * 0.55,
+        color: i < 4 ? '#b0bac4' : '#c0bbb2',
         life: 0.35,
         maxLife: 0.5,
         kind: 'smoke'
@@ -102,9 +102,9 @@ export function applyShowcaseShotIfRequested(state) {
 
     // Cinematic low-angle 3D chase camera looking north up Ocean Drive toward HOTEL SOLARIS, palm trees & chopper
     state.camera.overridePose = {
-      eye: [2744, 34, 2145],
-      look: [2692, 32, 1890],
-      fov: 62
+      eye: [2722, 33, 2152],
+      look: [2698, 28, 1890],
+      fov: 60
     };
   } else if (shot === 'hijack') {
     // Shot 2: On-Foot 3D Carjacking & Street Gunfight in Vice Neon Strip
@@ -148,7 +148,7 @@ export function applyShowcaseShotIfRequested(state) {
 
     pedestrians.push(guard1, guard2);
 
-    // 3D Glowing Bullet Tracers & Muzzle Sparks in mid-air
+    // 3D Warm Ballistic Bullet Tracers in mid-air
     for (let i = 0; i < 5; i++) {
       projectiles.push({
         x: player.x + 4 + i * 1.5,
@@ -158,7 +158,7 @@ export function applyShowcaseShotIfRequested(state) {
         vy: -780,
         damage: 26,
         life: 0.6,
-        color: '#00f0ff',
+        color: '#e8c47a',
         fromPlayer: true
       });
     }
@@ -178,11 +178,11 @@ export function applyShowcaseShotIfRequested(state) {
       vehicles.push(convoy);
     }
 
-    heroCar.x = 1244;
-    heroCar.y = 892;
+    heroCar.x = 1246;
+    heroCar.y = 894;
     heroCar.angle = -Math.PI * 0.55;
-    heroCar.color = '#fde047';
-    heroCar.stripeColor = '#111827';
+    heroCar.color = '#b6ad9d';
+    heroCar.stripeColor = '#2c323b';
 
     player.vehicle = null;
     player.x = 1208;
@@ -199,9 +199,13 @@ export function applyShowcaseShotIfRequested(state) {
     // Position the Armored Syndicate Goliath Bullion Convoy & SWAT Bearcat roadblock ahead
     if (convoy) {
       convoy.x = 1216;
-      convoy.y = 770;
+      convoy.y = 768;
       convoy.angle = Math.PI * 0.12;
       convoy.hp = 410;
+      if (state.missions.activeMission) {
+        state.missions.activeMission.targetX = convoy.x;
+        state.missions.activeMission.targetY = convoy.y;
+      }
     }
 
     const swat1 = createVehicle('swat_van', 1168, 788, 0.35, {
@@ -214,8 +218,8 @@ export function applyShowcaseShotIfRequested(state) {
     });
     vehicles.push(swat1, cop1);
 
-    // Trigger dramatic 3D Explosion Fireball & Shockwave Ring next to the convoy
-    triggerExplosion(state, 1234, 782, 10, 115, 120);
+    // Trigger dramatic layered 3D Explosion Fireball & Charcoal Smoke Plumes next to the convoy
+    triggerExplosion(state, 1236, 778, 8, 110, 120);
 
     // Airborne 5-Star Police Chopper hovering above Downtown Plaza
     wanted.helicopter.active = true;
@@ -270,10 +274,10 @@ export function applyShowcaseShotIfRequested(state) {
     saveCareerToStorage(state);
     state.hudBanner = null;
 
-    // Frame the 3D Starfish Marina waterfront, supercars, palm trees & superyachts on the left half
+    // Frame the 3D Starfish Marina waterfront, supercars, palm trees, golden beach, turquoise ocean & superyacht on the left half
     state.camera.overridePose = {
-      eye: [2635, 38, 925],
-      look: [2890, 22, 745],
+      eye: [2618, 49, 940],
+      look: [2920, 14, 730],
       fov: 58
     };
   }

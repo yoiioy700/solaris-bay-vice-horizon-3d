@@ -39,7 +39,7 @@ export function addCrimeHeat(state, amount, reason = 'VCPD DISPATCH ALERT') {
     state.hudBanner = {
       title: `WANTED LEVEL ${newStars}★ ESCALATION`,
       subtitle: reason,
-      color: '#ff2a85',
+      color: '#d95b66',
       timer: 2.6
     };
   }

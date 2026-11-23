@@ -34,20 +34,21 @@ export function createCityMap() {
   const palmTrees = [];
   const streetlights = [];
   const yachts = [];
+  const beachProps = [];
 
-  const neonPalette = ['#ff2a85', '#00f0ff', '#fde047', '#a855f7', '#fb7185', '#38bdf8'];
+  const accentPalette = ['#d67367', '#5eb3aa', '#d8b06c', '#7c9eb2', '#c88b6d', '#6fa696'];
   const landmarkSigns = {
-    '6_4': { text: 'HOTEL SOLARIS', neon: '#ff2a85', trim: '#00f0ff', height: 155 },
-    '6_5': { text: 'FLAMINGO RESORT', neon: '#00f0ff', trim: '#ff2a85', height: 145 },
-    '6_6': { text: 'PALM BEACH CLUB', neon: '#fde047', trim: '#ff2a85', height: 135 },
-    '4_4': { text: 'CLUB ECLIPSE', neon: '#ff2a85', trim: '#fde047', height: 170 },
-    '4_5': { text: 'PALM CASINO', neon: '#00f0ff', trim: '#ff2a85', height: 185 },
-    '3_4': { text: 'VICE ARMORY', neon: '#fde047', trim: '#ff2a85', height: 130 },
-    '5_4': { text: "PAY 'N' SPRAY", neon: '#00f0ff', trim: '#fde047', height: 95 },
-    '2_1': { text: 'VICE PLAZA TOWER', neon: '#00f0ff', trim: '#38bdf8', height: 245 },
-    '3_1': { text: 'SOLARIS RESERVE', neon: '#fde047', trim: '#00f0ff', height: 230 },
-    '4_1': { text: 'HORIZON CORP', neon: '#ff2a85', trim: '#00f0ff', height: 215 },
-    '6_1': { text: 'STARFISH VILLA', neon: '#10b981', trim: '#00f0ff', height: 105 }
+    '6_4': { text: 'HOTEL SOLARIS', neon: '#d67367', trim: '#5eb3aa', height: 155 },
+    '6_5': { text: 'FLAMINGO RESORT', neon: '#5eb3aa', trim: '#d8b06c', height: 145 },
+    '6_6': { text: 'PALM BEACH CLUB', neon: '#d8b06c', trim: '#5eb3aa', height: 135 },
+    '4_4': { text: 'CLUB ECLIPSE', neon: '#d67367', trim: '#d8b06c', height: 170 },
+    '4_5': { text: 'PALM CASINO', neon: '#5eb3aa', trim: '#d67367', height: 185 },
+    '3_4': { text: 'VICE ARMORY', neon: '#d8b06c', trim: '#7c9eb2', height: 130 },
+    '5_4': { text: "PAY 'N' SPRAY", neon: '#5eb3aa', trim: '#d8b06c', height: 95 },
+    '2_1': { text: 'VICE PLAZA TOWER', neon: '#7c9eb2', trim: '#d8b06c', height: 245 },
+    '3_1': { text: 'SOLARIS RESERVE', neon: '#d8b06c', trim: '#5eb3aa', height: 230 },
+    '4_1': { text: 'HORIZON CORP', neon: '#d67367', trim: '#7c9eb2', height: 215 },
+    '6_1': { text: 'STARFISH VILLA', neon: '#5eb3aa', trim: '#d8b06c', height: 105 }
   };
 
   let bId = 1;
@@ -94,7 +95,7 @@ export function createCityMap() {
       if (landmark || availW < 155) {
         const neonColor = landmark
           ? landmark.neon
-          : neonPalette[(ix * 5 + iy * 3) % neonPalette.length];
+          : accentPalette[(ix * 5 + iy * 3) % accentPalette.length];
         buildings.push({
           id: `b_${bId++}`,
           x: blockLeft + 6,
@@ -103,14 +104,15 @@ export function createCityMap() {
           h: availH - 12,
           height3D: landmark ? landmark.height : baseHeight,
           styleIndex,
+          variant: (ix * 3 + iy * 7) % 3,
           neonColor,
-          trimColor: landmark ? landmark.trim : '#00f0ff',
+          trimColor: landmark ? landmark.trim : '#5eb3aa',
           signText: landmark ? landmark.text : null
         });
       } else {
         const halfH = (availH - 22) * 0.5;
         for (let sub = 0; sub < 2; sub++) {
-          const neonColor = neonPalette[(ix * 7 + iy * 3 + sub) % neonPalette.length];
+          const neonColor = accentPalette[(ix * 7 + iy * 3 + sub) % accentPalette.length];
           buildings.push({
             id: `b_${bId++}`,
             x: blockLeft + 6,
@@ -119,8 +121,9 @@ export function createCityMap() {
             h: halfH,
             height3D: baseHeight + (sub === 0 ? 18 : -12),
             styleIndex,
+            variant: (ix * 5 + iy * 2 + sub) % 3,
             neonColor,
-            trimColor: '#00f0ff',
+            trimColor: '#5eb3aa',
             signText: null
           });
         }
@@ -145,7 +148,7 @@ export function createCityMap() {
       streetlights.push({
         x: blockRight + 8,
         y: blockTop - 8,
-        color: styleIndex === 2 ? '#ff2a85' : '#fde047'
+        color: '#e8c488'
       });
     }
   }
@@ -155,24 +158,51 @@ export function createCityMap() {
     palmTrees.push({
       x: COAST_X - 8,
       y,
-      scale: 1.08 + ((y * 13) % 5) * 0.07,
+      scale: 1.06 + ((y * 13) % 5) * 0.06,
       leanAngle: (y * 0.04) % (Math.PI * 2)
     });
     palmTrees.push({
       x: COAST_X + 46,
       y: y + 28,
-      scale: 1.0 + ((y * 7) % 4) * 0.08,
+      scale: 0.98 + ((y * 7) % 4) * 0.07,
       leanAngle: ((y + 90) * 0.05) % (Math.PI * 2)
+    });
+  }
+
+  // Coastal Solaris Beach umbrellas and lifeguard stations
+  const umbrellaColors = ['#b85e54', '#467e88', '#c89b55', '#5a8376'];
+  for (let y = 480; y <= 3100; y += 115) {
+    beachProps.push({
+      kind: 'umbrella',
+      x: COAST_X + 95 + ((y * 17) % 48),
+      y,
+      color: umbrellaColors[Math.floor(y / 115) % umbrellaColors.length],
+      tilt: ((y % 7) - 3) * 0.03
+    });
+    beachProps.push({
+      kind: 'umbrella',
+      x: COAST_X + 138 + ((y * 11) % 32),
+      y: y + 48,
+      color: umbrellaColors[(Math.floor(y / 115) + 2) % umbrellaColors.length],
+      tilt: ((y % 5) - 2) * 0.03
+    });
+  }
+  for (const ly of [760, 1460, 1940, 2560]) {
+    beachProps.push({
+      kind: 'lifeguard',
+      x: COAST_X + 124,
+      y: ly,
+      color: '#6ca2a8'
     });
   }
 
   // Luxury 3D Superyachts anchored in Starfish Bay Marina & Ocean Drive waters
   yachts.push(
-    { id: 'yacht_1', x: 3120, y: 690, angle: 0.15, trimColor: '#00f0ff' },
-    { id: 'yacht_2', x: 3170, y: 920, angle: -0.1, trimColor: '#ff2a85' },
-    { id: 'yacht_3', x: 3150, y: 1620, angle: 0.42, trimColor: '#fde047' },
-    { id: 'yacht_4', x: 3220, y: 2140, angle: -0.25, trimColor: '#00f0ff' },
-    { id: 'yacht_5', x: 3140, y: 2680, angle: 0.08, trimColor: '#ff2a85' }
+    { id: 'yacht_1', x: 3068, y: 745, angle: 0.24, trimColor: '#2c6e80' },
+    { id: 'yacht_2', x: 3165, y: 920, angle: -0.1, trimColor: '#9c3e4b' },
+    { id: 'yacht_3', x: 3150, y: 1620, angle: 0.42, trimColor: '#b59257' },
+    { id: 'yacht_4', x: 3220, y: 2140, angle: -0.25, trimColor: '#2c6e80' },
+    { id: 'yacht_5', x: 3140, y: 2680, angle: 0.08, trimColor: '#4a6b65' }
   );
 
   return {
@@ -187,6 +217,7 @@ export function createCityMap() {
     palmTrees,
     streetlights,
     yachts,
+    beachProps,
     landmarks: LANDMARKS
   };
 }

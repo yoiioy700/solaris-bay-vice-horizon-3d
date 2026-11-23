@@ -171,7 +171,7 @@ export function completeActiveMission(state) {
   state.hudBanner = {
     title: `MISSION PASSED • +$${active.reward.toLocaleString()}`,
     subtitle: `${active.title} COMPLETED`,
-    color: '#fde047',
+    color: '#e0b268',
     timer: 4.0
   };
 
