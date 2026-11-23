@@ -34,7 +34,9 @@ export function renderHud2D(ctx, state) {
   renderBottomLeftRadar(ctx, state);
 
   // 5. Bottom-Right Sleek Automotive Tachometer / Speedometer & Synthwave Radio Gauge
-  renderBottomRightTelemetry(ctx, state);
+  if (!state.safehouseModalOpen) {
+    renderBottomRightTelemetry(ctx, state);
+  }
 
   // 6. Temporary Event Banner (Mission Passed / Pay 'N' Spray / Wanted Alert)
   if (state.hudBanner && state.hudBanner.timer > 0) {
