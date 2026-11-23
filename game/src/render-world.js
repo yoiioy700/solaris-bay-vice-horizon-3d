@@ -18,7 +18,7 @@ import { findNearestHijackableVehicle } from './vehicles.js';
  * with a glowing volumetric sunset sun disc and horizon haze.
  */
 function createSunsetSkyDome() {
-  const skyGeo = new THREE.SphereGeometry(2450, 36, 20);
+  const skyGeo = new THREE.SphereGeometry(4200, 36, 20);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -81,9 +81,9 @@ export function createWorldRenderer3D(canvas, state) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1a0b28);
   scene.environment = lib.envMap;
-  scene.fog = new THREE.FogExp2(0x231130, 0.00046);
+  scene.fog = new THREE.FogExp2(0x231130, 0.00038);
 
-  const camera = new THREE.PerspectiveCamera(58, 1280 / 720, 1.5, 2900);
+  const camera = new THREE.PerspectiveCamera(58, 1280 / 720, 1.5, 5000);
 
   // 1. Custom GLSL Sunset Sky Dome
   const skyDome = createSunsetSkyDome();
@@ -558,9 +558,9 @@ export function createWorldRenderer3D(canvas, state) {
         m.material.blending = THREE.AdditiveBlending;
       } else {
         m.geometry = sphereGeo;
-        const sScale = pt.size * (1 + (pt.kind === 'smoke' ? progress * 1.4 : 0));
+        const sScale = pt.size * (1 + (pt.kind === 'smoke' ? progress * 1.15 : 0));
         m.scale.set(sScale, sScale, sScale);
-        m.material.opacity = (1 - progress) * (pt.kind === 'smoke' ? 0.52 : 0.95);
+        m.material.opacity = (1 - progress) * (pt.kind === 'smoke' ? 0.32 : 0.95);
         m.material.blending =
           pt.kind === 'spark' ? THREE.AdditiveBlending : THREE.NormalBlending;
       }

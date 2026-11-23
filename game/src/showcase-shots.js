@@ -4,6 +4,16 @@ import { startMissionByIndex } from './missions-story.js';
 import { triggerExplosion } from './combat-weapons.js';
 import { saveCareerToStorage } from './audio-save.js';
 
+function clearBackgroundVehiclesNear(vehicles, cx, cy, radius, keepVehicle = null) {
+  for (let i = vehicles.length - 1; i >= 0; i--) {
+    const v = vehicles[i];
+    if (v === keepVehicle) continue;
+    if (Math.hypot(v.x - cx, v.y - cy) < radius) {
+      vehicles.splice(i, 1);
+    }
+  }
+}
+
 export function applyShowcaseShotIfRequested(state) {
   if (typeof window === 'undefined') return null;
   const params = new URLSearchParams(window.location.search);
@@ -16,8 +26,10 @@ export function applyShowcaseShotIfRequested(state) {
     // Shot 1: 4-Star Sunset Supercar & Police Chopper Pursuit on Ocean Drive
     startMissionByIndex(state, 0);
     const heroCar = vehicles[0];
-    heroCar.x = 2714;
-    heroCar.y = 2040;
+    clearBackgroundVehiclesNear(vehicles, 2714, 2000, 320, heroCar);
+
+    heroCar.x = 2722;
+    heroCar.y = 2042;
     heroCar.angle = -Math.PI * 0.46;
     heroCar.speed = 382;
     heroCar.vx = Math.cos(heroCar.angle) * heroCar.speed;
@@ -38,15 +50,16 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.heat = 720;
     wanted.sirenTimer = 0.4;
 
-    // Two pursuing VCPD Interceptors flanking the supercar with flashing sirens
-    const cop1 = createVehicle('police_cruiser', 2742, 2110, -Math.PI * 0.52, {
+    // Pursuing VCPD Interceptor in adjacent left lane slightly ahead/beside hero supercar (100% visible, no bottom clipping)
+    const cop1 = createVehicle('police_cruiser', 2682, 1998, -Math.PI * 0.48, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
     cop1.speed = 355;
     cop1.sirenPhase = 0.6;
 
-    const cop2 = createVehicle('police_cruiser', 2684, 2126, -Math.PI * 0.48, {
+    // Second VCPD Interceptor further ahead angling across the avenue
+    const cop2 = createVehicle('police_cruiser', 2744, 1912, -Math.PI * 0.58, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
@@ -54,7 +67,7 @@ export function applyShowcaseShotIfRequested(state) {
     cop2.sirenPhase = 3.6;
 
     // Oncoming cyan sports roadster in the far lane
-    const cabrio = createVehicle('comet_cabrio', 2688, 1930, Math.PI * 0.5, {
+    const cabrio = createVehicle('comet_cabrio', 2686, 1838, Math.PI * 0.5, {
       aiRole: 'traffic'
     });
     cabrio.speed = 180;
@@ -69,18 +82,19 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.helicopter.angle = Math.PI * 0.48;
     wanted.helicopter.rotorAngle = 0.75;
 
-    // 3D Tire Drift & Cyan Nitro Smoke Puffs behind the rear wheels
-    for (let i = 0; i < 14; i++) {
+    // Crisp, subtle tire-level drift wisps that leave the rear bumper, spoiler, exhausts & nitro flames 100% sharp
+    for (let i = 0; i < 8; i++) {
+      const side = i % 2 === 0 ? -11 : 11;
       particles.push({
-        x: heroCar.x + (i % 2 === 0 ? -9 : 9) + (Math.random() - 0.5) * 6,
-        y: heroCar.y + 24 + i * 3.8,
-        z: 2.5 + i * 0.4,
+        x: heroCar.x + side,
+        y: heroCar.y + 28 + i * 5.2,
+        z: 1.8,
         vx: 0,
         vy: 15,
-        vz: 8,
-        size: 4.8 + (i % 3) * 1.4,
-        color: i < 5 ? '#00f0ff' : '#e2e8f0',
-        life: 0.4,
+        vz: 4,
+        size: 2.3 + (i % 3) * 0.65,
+        color: i < 4 ? '#00f0ff' : '#cbd5e1',
+        life: 0.35,
         maxLife: 0.5,
         kind: 'smoke'
       });
@@ -95,6 +109,8 @@ export function applyShowcaseShotIfRequested(state) {
   } else if (shot === 'hijack') {
     // Shot 2: On-Foot 3D Carjacking & Street Gunfight in Vice Neon Strip
     startMissionByIndex(state, 1);
+    clearBackgroundVehiclesNear(vehicles, 1856, 1740, 320);
+
     player.vehicle = null;
     player.x = 1844;
     player.y = 1796;
@@ -106,25 +122,27 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.stars = 2;
     wanted.heat = 280;
 
-    // Convertible Comet GT Cabrio right next to player ready to carjack
-    const targetCabrio = createVehicle('comet_cabrio', 1868, 1770, -Math.PI * 0.58, {
+    // Convertible Comet GT Cabrio cleanly parked on the right lane ready to carjack (zero overlap!)
+    const targetCabrio = createVehicle('comet_cabrio', 1874, 1766, -Math.PI * 0.56, {
       aiRole: 'parked'
     });
-    const neonMuscle = createVehicle('stinger_muscle', 1820, 1695, Math.PI * 0.42, {
+    // Orange Stinger 426 Hemi Muscle Car cleanly separated in the left lane 62 units away
+    const neonMuscle = createVehicle('stinger_muscle', 1814, 1718, Math.PI * 0.45, {
       aiRole: 'parked'
     });
-    const copInterceptor = createVehicle('police_cruiser', 1882, 1665, Math.PI * 0.62, {
+    // VCPD Interceptor responding up the avenue
+    const copInterceptor = createVehicle('police_cruiser', 1868, 1648, Math.PI * 0.62, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
     vehicles.push(targetCabrio, neonMuscle, copInterceptor);
 
     // Syndicate Enforcers exchanging gunfire with player
-    const guard1 = createPedestrian(1848, 1712, 'syndicate');
+    const guard1 = createPedestrian(1846, 1706, 'syndicate');
     guard1.angle = Math.PI * 0.52;
     guard1.muzzleTimer = 0.08;
 
-    const guard2 = createPedestrian(1876, 1705, 'syndicate');
+    const guard2 = createPedestrian(1878, 1698, 'syndicate');
     guard2.angle = Math.PI * 0.58;
     guard2.muzzleTimer = 0.08;
 
@@ -147,15 +165,21 @@ export function applyShowcaseShotIfRequested(state) {
 
     state.camera.overridePose = {
       eye: [1828, 30, 1864],
-      look: [1862, 24, 1705],
+      look: [1860, 24, 1705],
       fov: 58
     };
   } else if (shot === 'heist') {
     // Shot 3: 5-Star Story Heist: Federal Reserve Convoy Ambush in Downtown Vice Plaza
     startMissionByIndex(state, 4);
     const heroCar = vehicles[0];
-    heroCar.x = 1236;
-    heroCar.y = 890;
+    const convoy = state.missions.targetEntity;
+    clearBackgroundVehiclesNear(vehicles, 1216, 810, 320, heroCar);
+    if (convoy && !vehicles.includes(convoy)) {
+      vehicles.push(convoy);
+    }
+
+    heroCar.x = 1244;
+    heroCar.y = 892;
     heroCar.angle = -Math.PI * 0.55;
     heroCar.color = '#fde047';
     heroCar.stripeColor = '#111827';
@@ -173,19 +197,18 @@ export function applyShowcaseShotIfRequested(state) {
     wanted.sirenTimer = 0.3;
 
     // Position the Armored Syndicate Goliath Bullion Convoy & SWAT Bearcat roadblock ahead
-    const convoy = state.missions.targetEntity;
     if (convoy) {
       convoy.x = 1216;
-      convoy.y = 772;
+      convoy.y = 770;
       convoy.angle = Math.PI * 0.12;
       convoy.hp = 410;
     }
 
-    const swat1 = createVehicle('swat_van', 1174, 786, 0.35, {
+    const swat1 = createVehicle('swat_van', 1168, 788, 0.35, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
-    const cop1 = createVehicle('police_cruiser', 1258, 792, -2.6, {
+    const cop1 = createVehicle('police_cruiser', 1262, 794, -2.6, {
       aiRole: 'police_pursuit',
       driver: 'police'
     });
@@ -218,19 +241,21 @@ export function applyShowcaseShotIfRequested(state) {
     startMissionByIndex(state, 5);
 
     const heroCar = vehicles[0];
-    heroCar.x = 2705;
-    heroCar.y = 825;
-    heroCar.angle = -Math.PI * 0.38;
+    clearBackgroundVehiclesNear(vehicles, 2720, 810, 320, heroCar);
+
+    heroCar.x = 2700;
+    heroCar.y = 838;
+    heroCar.angle = -Math.PI * 0.42;
     heroCar.speed = 0;
     heroCar.nitroActive = false;
 
-    const parkedCabrio = createVehicle('comet_cabrio', 2745, 790, -Math.PI * 0.62, {
+    const parkedCabrio = createVehicle('comet_cabrio', 2746, 768, -Math.PI * 0.56, {
       aiRole: 'parked'
     });
     vehicles.push(parkedCabrio);
 
     player.vehicle = null;
-    player.x = 2722;
+    player.x = 2724;
     player.y = 842;
     player.angle = -Math.PI * 0.35;
     player.cash = 385000;
@@ -243,7 +268,7 @@ export function applyShowcaseShotIfRequested(state) {
 
     state.safehouseModalOpen = true;
     saveCareerToStorage(state);
-    state.hudBanner = null; // keep top-center clean above safehouse
+    state.hudBanner = null;
 
     // Frame the 3D Starfish Marina waterfront, supercars, palm trees & superyachts on the left half
     state.camera.overridePose = {

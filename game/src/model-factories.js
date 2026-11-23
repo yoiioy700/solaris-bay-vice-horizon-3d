@@ -363,158 +363,335 @@ export function buildVehicleModel3D(veh, lib) {
 }
 
 /**
- * Builds an articulated 3D humanoid character rig with 8 pivot groups,
- * open-collar Vice jacket, aviator sunglasses, and a 3D firearm + muzzle flash star.
+ * Builds an authored, rounded multi-part 3D humanoid character rig with 8 pivot groups,
+ * tapered thigh/shin/sneaker limbs, utility belt with chrome buckle & holster,
+ * layered V-neck tee + open-collar tailored Vice jacket with shoulder pads,
+ * sculpted head with hair crest & wrap-around aviator sunglasses, and a detailed 3D firearm + muzzle flash star.
  */
 export function buildCharacterModel3D(person, lib) {
   const root = new THREE.Group();
 
-  const jacketMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(person.jacketColor || '#ff2a85'),
-    roughness: 0.42,
-    metalness: 0.15
+  const jacketMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(person.jacketColor || '#ff1e74'),
+    roughness: 0.34,
+    metalness: 0.18,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.25
   });
   const shirtMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(person.shirtColor || '#00f0ff'),
-    roughness: 0.55
+    roughness: 0.5
   });
   const pantsMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(person.pantsColor || '#1e293b'),
-    roughness: 0.65
+    roughness: 0.62
   });
   const skinMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(person.skinColor || '#eab396'),
-    roughness: 0.55
+    roughness: 0.48
   });
   const hairMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(person.hairColor || '#111827'),
-    roughness: 0.7
+    roughness: 0.65
+  });
+  const soleMat = new THREE.MeshStandardMaterial({
+    color: 0xf8fafc,
+    roughness: 0.4
   });
 
-  // Left & Right Articulated Legs
-  const leftLegPivot = new THREE.Group();
-  leftLegPivot.position.set(0, 7.2, -1.6);
-  const leftLegMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.25, 1.0, 7.2, 10),
-    pantsMat
-  );
-  leftLegMesh.position.y = -3.6;
-  leftLegMesh.castShadow = true;
-  leftLegPivot.add(leftLegMesh);
-  root.add(leftLegPivot);
+  function buildArticulatedLeg(sideSign) {
+    const legPivot = new THREE.Group();
+    legPivot.position.set(0, 7.6, sideSign * 1.55);
 
-  const rightLegPivot = new THREE.Group();
-  rightLegPivot.position.set(0, 7.2, 1.6);
-  const rightLegMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.25, 1.0, 7.2, 10),
-    pantsMat
-  );
-  rightLegMesh.position.y = -3.6;
-  rightLegMesh.castShadow = true;
-  rightLegPivot.add(rightLegMesh);
-  root.add(rightLegPivot);
+    // Tapered upper thigh
+    const thigh = new THREE.Mesh(
+      new THREE.CapsuleGeometry(1.12, 2.3, 6, 12),
+      pantsMat
+    );
+    thigh.position.set(0, -1.7, 0);
+    thigh.castShadow = true;
+    legPivot.add(thigh);
 
-  // Torso & Open-Collar Vice Jacket
+    // Rounded knee joint
+    const knee = new THREE.Mesh(new THREE.SphereGeometry(0.96, 10, 8), pantsMat);
+    knee.position.set(0.1, -3.5, 0);
+    legPivot.add(knee);
+
+    // Tapered lower shin/calf
+    const shin = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.95, 0.76, 3.3, 12),
+      pantsMat
+    );
+    shin.position.set(0, -5.1, 0);
+    shin.castShadow = true;
+    legPivot.add(shin);
+
+    // Sculpted sneaker with white sole & rounded toe cap
+    const shoeUpper = new THREE.Mesh(
+      new THREE.BoxGeometry(2.6, 1.0, 1.65),
+      lib.darkMetalMaterial
+    );
+    shoeUpper.position.set(0.45, -6.8, 0);
+    shoeUpper.castShadow = true;
+    legPivot.add(shoeUpper);
+
+    const shoeToe = new THREE.Mesh(
+      new THREE.SphereGeometry(0.82, 10, 8),
+      lib.darkMetalMaterial
+    );
+    shoeToe.scale.set(1.2, 0.6, 0.98);
+    shoeToe.position.set(1.65, -6.85, 0);
+    legPivot.add(shoeToe);
+
+    const shoeSole = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.42, 1.78), soleMat);
+    shoeSole.position.set(0.55, -7.35, 0);
+    legPivot.add(shoeSole);
+
+    return legPivot;
+  }
+
+  const leftLegPivot = buildArticulatedLeg(-1);
+  const rightLegPivot = buildArticulatedLeg(1);
+  root.add(leftLegPivot, rightLegPivot);
+
+  // Torso, Pelvis, Tactical Belt & Tailored Open-Collar Vice Jacket
   const torsoGroup = new THREE.Group();
-  torsoGroup.position.set(0, 10.8, 0);
+  torsoGroup.position.set(0, 11.2, 0);
 
-  const jacketMesh = new THREE.Mesh(new THREE.BoxGeometry(3.8, 7.2, 5.6), jacketMat);
-  jacketMesh.castShadow = true;
-  torsoGroup.add(jacketMesh);
+  // Rounded pelvis & tactical belt with chrome buckle + side holster
+  const pelvis = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.05, 1.9, 1.8, 14),
+    pantsMat
+  );
+  pelvis.scale.set(0.82, 1, 1.25);
+  pelvis.position.y = -3.1;
+  torsoGroup.add(pelvis);
 
-  const shirtFront = new THREE.Mesh(new THREE.BoxGeometry(4.0, 6.4, 2.2), shirtMat);
-  shirtFront.position.x = 0.15;
-  torsoGroup.add(shirtFront);
+  const belt = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.15, 2.15, 0.75, 14),
+    lib.darkMetalMaterial
+  );
+  belt.scale.set(0.84, 1, 1.28);
+  belt.position.y = -2.35;
+  torsoGroup.add(belt);
+
+  const buckle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.85, 1.25),
+    lib.chromeMaterial
+  );
+  buckle.position.set(1.75, -2.35, 0);
+  torsoGroup.add(buckle);
+
+  const holster = new THREE.Mesh(
+    new THREE.BoxGeometry(1.4, 1.9, 0.8),
+    lib.darkMetalMaterial
+  );
+  holster.position.set(0.2, -3.1, 2.65);
+  torsoGroup.add(holster);
+
+  // Tapered athletic inner V-neck shirt torso
+  const innerTorso = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.35, 1.95, 5.8, 16),
+    shirtMat
+  );
+  innerTorso.scale.set(0.82, 1, 1.26);
+  innerTorso.position.y = 0.5;
+  innerTorso.castShadow = true;
+  torsoGroup.add(innerTorso);
+
+  // Open-front tailored Vice jacket back & left/right front lapel panels
+  const jacketBack = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.5, 2.1, 6.0, 14, 1, false, Math.PI * 0.25, Math.PI * 1.5),
+    jacketMat
+  );
+  jacketBack.scale.set(0.86, 1, 1.32);
+  jacketBack.position.y = 0.55;
+  jacketBack.castShadow = true;
+  torsoGroup.add(jacketBack);
+
+  for (const side of [-1, 1]) {
+    // Front jacket lapel panel
+    const lapel = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 5.8, 1.65),
+      jacketMat
+    );
+    lapel.position.set(1.15, 0.55, side * 1.85);
+    lapel.rotation.y = side * -0.18;
+    lapel.castShadow = true;
+    torsoGroup.add(lapel);
+
+    // Contoured shoulder pad
+    const shoulderCap = new THREE.Mesh(
+      new THREE.SphereGeometry(1.38, 12, 10),
+      jacketMat
+    );
+    shoulderCap.scale.set(1.05, 0.82, 1.15);
+    shoulderCap.position.set(0.1, 3.1, side * 2.95);
+    shoulderCap.castShadow = true;
+    torsoGroup.add(shoulderCap);
+  }
+
+  // Popped Vice jacket collar
+  const collar = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.75, 1.95, 1.35, 12, 1, true, Math.PI * 0.3, Math.PI * 1.4),
+    jacketMat
+  );
+  collar.position.set(-0.1, 3.65, 0);
+  torsoGroup.add(collar);
 
   root.add(torsoGroup);
 
-  // Sculpted Head, Hair & Aviator Sunglasses Visor
+  // Sculpted Head, Neck, Swept Hair Crest & Wrap-Around Aviator Sunglasses
   const headGroup = new THREE.Group();
-  headGroup.position.set(0, 16.4, 0);
+  headGroup.position.set(0, 16.9, 0);
 
-  const headMesh = new THREE.Mesh(new THREE.SphereGeometry(2.2, 14, 12), skinMat);
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.95, 1.1, 1.5, 12),
+    skinMat
+  );
+  neck.position.y = -1.55;
+  headGroup.add(neck);
+
+  const headMesh = new THREE.Mesh(
+    new THREE.CapsuleGeometry(1.75, 0.95, 8, 16),
+    skinMat
+  );
   headMesh.castShadow = true;
   headGroup.add(headMesh);
 
-  const hairCap = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.8, 4.4), hairMat);
-  hairCap.position.set(-0.2, 1.4, 0);
-  headGroup.add(hairCap);
-
-  // Glossy Aviator Visor facing +X
-  const visor = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2, 0.95, 3.6),
-    lib.glassCanopyMaterial
+  // Swept-back Vice hair crown & textured crest
+  const hairCrown = new THREE.Mesh(
+    new THREE.SphereGeometry(1.88, 14, 12),
+    hairMat
   );
-  visor.position.set(1.8, 0.3, 0);
-  headGroup.add(visor);
+  hairCrown.scale.set(1.08, 0.82, 1.04);
+  hairCrown.position.set(-0.22, 0.88, 0);
+  headGroup.add(hairCrown);
+
+  const hairPompadour = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.95, 1.4, 6, 12),
+    hairMat
+  );
+  hairPompadour.rotation.z = Math.PI * 0.42;
+  hairPompadour.position.set(0.25, 1.55, 0);
+  headGroup.add(hairPompadour);
+
+  // Wrap-around Aviator Sunglasses (twin angled lenses + chrome brow bar)
+  const browBar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.22, 3.3),
+    lib.chromeMaterial
+  );
+  browBar.position.set(1.68, 0.52, 0);
+  headGroup.add(browBar);
+
+  for (const side of [-1, 1]) {
+    const lens = new THREE.Mesh(
+      new THREE.SphereGeometry(0.82, 10, 8),
+      lib.glassCanopyMaterial
+    );
+    lens.scale.set(0.42, 0.68, 1.05);
+    lens.position.set(1.58, 0.22, side * 0.88);
+    headGroup.add(lens);
+  }
 
   root.add(headGroup);
 
-  // Left Arm Pivot
-  const leftArmPivot = new THREE.Group();
-  leftArmPivot.position.set(0, 13.8, -3.5);
-  const leftArmMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.0, 0.85, 6.2, 10),
-    jacketMat
-  );
-  leftArmMesh.position.y = -2.8;
-  leftArmMesh.castShadow = true;
-  leftArmPivot.add(leftArmMesh);
-  root.add(leftArmPivot);
+  // Articulated Two-Segment Left Arm
+  function buildArticulatedArm(sideSign) {
+    const armPivot = new THREE.Group();
+    armPivot.position.set(0.1, 14.1, sideSign * 3.35);
 
-  // Right Arm Pivot + 3D Weapon Assembly
-  const rightArmPivot = new THREE.Group();
-  rightArmPivot.position.set(0, 13.8, 3.5);
-  const rightArmMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.0, 0.85, 6.2, 10),
-    jacketMat
-  );
-  rightArmMesh.position.y = -2.8;
-  rightArmMesh.castShadow = true;
-  rightArmPivot.add(rightArmMesh);
+    const upperArm = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.92, 2.1, 6, 10),
+      jacketMat
+    );
+    upperArm.position.y = -1.35;
+    upperArm.castShadow = true;
+    armPivot.add(upperArm);
 
-  // Detailed 3D Firearm held forward along +X
+    const cuff = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.94, 0.88, 0.55, 10),
+      shirtMat
+    );
+    cuff.position.y = -2.85;
+    armPivot.add(cuff);
+
+    const forearm = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.78, 0.65, 2.2, 10),
+      skinMat
+    );
+    forearm.position.set(0.35, -3.95, 0);
+    forearm.rotation.z = 0.22;
+    forearm.castShadow = true;
+    armPivot.add(forearm);
+
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.72, 10, 8), skinMat);
+    hand.position.set(0.62, -5.05, 0);
+    armPivot.add(hand);
+
+    return armPivot;
+  }
+
+  const leftArmPivot = buildArticulatedArm(-1);
+  const rightArmPivot = buildArticulatedArm(1);
+  root.add(leftArmPivot, rightArmPivot);
+
+  // Detailed 3D Firearm held in the right hand
   const weaponGroup = new THREE.Group();
-  weaponGroup.position.set(3.2, -3.2, 0);
+  weaponGroup.position.set(3.4, -4.6, -0.3);
 
   const receiver = new THREE.Mesh(
-    new THREE.BoxGeometry(5.5, 1.4, 0.9),
+    new THREE.BoxGeometry(5.8, 1.45, 0.95),
     lib.darkMetalMaterial
   );
+  receiver.castShadow = true;
   weaponGroup.add(receiver);
 
+  const topRail = new THREE.Mesh(
+    new THREE.BoxGeometry(4.2, 0.35, 0.65),
+    lib.chromeMaterial
+  );
+  topRail.position.set(0.2, 0.88, 0);
+  weaponGroup.add(topRail);
+
+  const opticSight = new THREE.Mesh(
+    new THREE.BoxGeometry(1.3, 0.85, 0.75),
+    lib.darkMetalMaterial
+  );
+  opticSight.position.set(-0.2, 1.35, 0);
+  weaponGroup.add(opticSight);
+
   const barrel = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.32, 0.32, 3.8, 8),
+    new THREE.CylinderGeometry(0.36, 0.36, 4.2, 10),
     lib.chromeMaterial
   );
   barrel.rotation.z = Math.PI * 0.5;
-  barrel.position.set(3.6, 0.25, 0);
+  barrel.position.set(3.9, 0.25, 0);
   weaponGroup.add(barrel);
 
   const magazine = new THREE.Mesh(
-    new THREE.BoxGeometry(1.1, 2.2, 0.75),
+    new THREE.BoxGeometry(1.15, 2.5, 0.78),
     lib.darkMetalMaterial
   );
-  magazine.position.set(0.4, -1.3, 0);
-  magazine.rotation.z = 0.25;
+  magazine.position.set(0.6, -1.45, 0);
+  magazine.rotation.z = 0.26;
   weaponGroup.add(magazine);
 
   // 3D Muzzle Flash Star
   const muzzleFlashMesh = new THREE.Mesh(
-    new THREE.OctahedronGeometry(2.1, 0),
+    new THREE.OctahedronGeometry(2.2, 0),
     new THREE.MeshBasicMaterial({
       color: 0xfef08a,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.94,
       blending: THREE.AdditiveBlending
     })
   );
-  muzzleFlashMesh.position.set(6.2, 0.25, 0);
+  muzzleFlashMesh.position.set(6.5, 0.25, 0);
   muzzleFlashMesh.visible = false;
   weaponGroup.add(muzzleFlashMesh);
 
   rightArmPivot.add(weaponGroup);
-  root.add(rightArmPivot);
 
   root.userData = {
     leftLegPivot,
