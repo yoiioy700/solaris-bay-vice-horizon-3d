@@ -1,3 +1,4 @@
+// Hardware WebGL 2.0 Three.js r183 verified entrypoint for Solaris Bay: Vice Horizon 3D
 import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
